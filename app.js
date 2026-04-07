@@ -116,6 +116,13 @@ function addDays(dt, n) {
   return d;
 }
 
+function startDateFromRange(value) {
+  if (!value || value === "all") return null;
+  const days = Number(value);
+  if (!Number.isFinite(days) || days <= 0) return null;
+  return addDays(new Date(), -(days - 1));
+}
+
 function debounce(fn, wait=150) {
   let t = null;
   return (...args) => {
@@ -158,6 +165,7 @@ const State = {
   routines: [],
   sessions: [],
   selectedRoutineId: null,
+  selectedExerciseName: null,
   cardioDraft: null,
   sessionDraft: null,
   route: "dashboard"
@@ -425,8 +433,12 @@ function setRoute(route) {
   $(`#view-${route}`)?.classList.add("is-active");
 
   // Nav active
-  $$(".nav__item").forEach(a => a.classList.remove("is-active"));
-  $(`.nav__item[data-route="${route}"]`)?.classList.add("is-active");
+  $$(".nav__item").forEach(a => {
+    const active = a.getAttribute("data-route") === route;
+    a.classList.toggle("is-active", active);
+    if (active) a.setAttribute("aria-current", "page");
+    else a.removeAttribute("aria-current");
+  });
 
   // Title/subtitle
   const titleMap = {
@@ -493,6 +505,51 @@ function bindPrefsUIOnce() {
     applyTheme();
     toast("Preferencias guardadas", "Listo. El universo no colapsó.", "ok");
   });
+}
+
+function bindShellActionsOnce() {
+  $("#btnQuickSession")?.addEventListener("click", () => {
+    location.hash = "#new-session";
+  });
+  $("#btnGoNewSession")?.addEventListener("click", () => {
+    location.hash = "#new-session";
+  });
+  $("#btnGoProgress")?.addEventListener("click", () => {
+    location.hash = "#progress";
+  });
+  $("#btnGoHistory")?.addEventListener("click", () => {
+    location.hash = "#history";
+  });
+  $("#btnHelp")?.addEventListener("click", () => {
+    toast("Ayuda rápida", "Crea una rutina, carga ejercicios y guarda tu sesión.", "ok");
+  });
+
+  const importInput = $("#fileImport");
+  if (importInput && !importInput.dataset.bound) {
+    importInput.dataset.bound = "1";
+    importInput.addEventListener("change", () => {
+      const file = importInput.files && importInput.files[0];
+      if (!file) return;
+      importJSONFromFile(file);
+      importInput.value = "";
+    });
+  }
+
+  ["btnImport", "btnImport2"].forEach(id => {
+    const node = $(`#${id}`);
+    if (!node || node.dataset.bound) return;
+    node.dataset.bound = "1";
+    node.addEventListener("click", () => importInput?.click());
+  });
+
+  ["btnExport", "btnExport2"].forEach(id => {
+    const node = $(`#${id}`);
+    if (!node || node.dataset.bound) return;
+    node.dataset.bound = "1";
+    node.addEventListener("click", () => exportJSON());
+  });
+
+  $("#btnHistoryExportCSV")?.addEventListener("click", () => exportCSV());
 }
 
 /* ---------------------------
@@ -793,16 +850,14 @@ function renderNextRoutineSuggestion() {
   if (!empty || !box || !list) return;
 
   if (!State.routines.length) {
-    empty.classList.remove("is-hidden");
-    box.classList.add("is-hidden");
+    box.textContent = "Cardio: ninguno";
     return;
   }
 
   const last3 = State.sessions.slice(0,3).map(s => s.routineId).filter(Boolean);
   const pick = State.routines.find(r => !last3.includes(r.id)) || State.routines[0];
 
-  empty.classList.add("is-hidden");
-  box.classList.remove("is-hidden");
+  
 
   $("#nextRoutineName") && ($("#nextRoutineName").textContent = pick.name);
   $("#nextRoutineMeta") && ($("#nextRoutineMeta").textContent = `${pick.tag || "Sin tag"} • ${pick.exercises.length} ejercicios • ${pick.targetMin || 0} min`);
@@ -879,8 +934,7 @@ function renderFocusExerciseBox() {
 
   const focus = Store.get(LS_KEYS.focusExercise, null);
   if (!focus?.name) {
-    empty.classList.remove("is-hidden");
-    box.classList.add("is-hidden");
+    box.textContent = "Cardio: ninguno";
   } else {
     empty.classList.add("is-hidden");
     box.classList.remove("is-hidden");
@@ -1404,7 +1458,7 @@ function openCardioModal() {
     closeModal("#modalCardio");
     toast("Cardio agregado", `${machine} • ${minutes} min`, "ok");
   };
-  $("#btnDeleteCardio").onclick = async () => {
+  $("#btnDeleteCardio") && ($("#btnDeleteCardio").onclick = async () => {
     const ok = await confirmDialog({ title:"Quitar cardio", text:"¿Eliminar el cardio de esta sesión?", yesText:"Quitar", noText:"Cancelar" });
     if (!ok) return;
     State.cardioDraft = null;
@@ -1412,25 +1466,22 @@ function openCardioModal() {
     setDraftSession(collectSessionDraftFromUI());
     closeModal("#modalCardio");
     toast("Cardio quitado", "Listo.", "ok");
-  };
+  });
   openModal("#modalCardio");
 }
 
 function renderCardioSummary() {
   const box = $("#cardioSummary");
-  const empty = $("#cardioEmpty");
-  if (!box || !empty) return;
+  if (!box) return;
   const c = State.cardioDraft;
   if (!c) {
     empty.classList.remove("is-hidden");
-    box.classList.add("is-hidden");
-    $("#cardioSummaryText") && ($("#cardioSummaryText").textContent = "");
+    box.textContent = "Cardio: ninguno";
     return;
   }
-  empty.classList.add("is-hidden");
-  box.classList.remove("is-hidden");
+  
   $("#cardioSummaryText") && ($("#cardioSummaryText").textContent = `${c.machine} • ${c.minutes} min • ${c.intensity || "—"}`);
-  $("#btnEditCardio") && ($("#btnEditCardio").onclick = () => openCardioModal());
+  box.textContent = `Cardio: ${c.machine} | ${c.minutes} min | ${c.intensity || "-"}`;
 }
 
 /* --------------------------- SAVE SESSION --------------------------- */
@@ -1857,24 +1908,282 @@ async function resetAllData() {
   scheduleRender();
 }
 
-function renderSettings() {
-  // reflect prefs
-  applyTheme();
+function renderCardioSummary() {
+  const box = $("#cardioSummary");
+  if (!box) return;
+  const c = State.cardioDraft;
+  box.textContent = c
+    ? `Cardio: ${c.machine} | ${c.minutes} min | ${c.intensity || "-"}`
+    : "Cardio: ninguno";
+}
 
-  $("#btnExportJSON") && ($("#btnExportJSON").onclick = () => exportJSON());
-  $("#btnExportCSV") && ($("#btnExportCSV").onclick = () => exportCSV());
+function renderHistory() {
+  const list = $("#historyList");
+  const empty = $("#historyEmpty");
+  const search = $("#historySearch");
+  const range = $("#historyRange");
+  if (!list || !empty) return;
 
-  const inp = $("#importFile");
-  if (inp && !inp.dataset.bound) {
-    inp.dataset.bound = "1";
-    inp.addEventListener("change", () => {
-      const file = inp.files && inp.files[0];
-      if (!file) return;
-      importJSONFromFile(file);
-      inp.value = "";
+  const q = (search?.value || "").toLowerCase().trim();
+  const rangeStart = startDateFromRange(range?.value || "30");
+
+  const filtered = State.sessions
+    .slice()
+    .filter(s => {
+      if (q) {
+        const hay = `${s.routineName || ""} ${(s.exercises || []).map(e => e.name).join(" ")} ${s.notes || ""}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      if (rangeStart) {
+        const dt = parseISODate(s.date);
+        if (dt && dt < rangeStart) return false;
+      }
+      return true;
+    })
+    .sort((a, b) => (a.date < b.date ? 1 : -1));
+
+  $("#historyCount") && ($("#historyCount").textContent = String(filtered.length));
+
+  if (!filtered.length) {
+    empty.classList.remove("is-hidden");
+    list.classList.add("is-hidden");
+  } else {
+    empty.classList.add("is-hidden");
+    list.classList.remove("is-hidden");
+    list.innerHTML = "";
+
+    filtered.slice(0, 200).forEach(s => {
+      const vol = Math.round(calcVolumeForSession(s));
+      const cardioTxt = s.cardio?.machine ? `${s.cardio.machine} ${s.cardio.minutes || 0}m` : "—";
+      list.appendChild(el("article", { class:"item item--history" }, [
+        el("div", { class:"item__left" }, [
+          el("div", { class:"item__title", text: s.routineName || "Sesión" }),
+          el("div", { class:"muted item__meta", text: `${formatDate(s.date, State.prefs)} • ${s.durationMin || 0} min • Vol ${vol}` })
+        ]),
+        el("div", { class:"item__right" }, [
+          el("span", { class:"pill", text: cardioTxt }),
+          el("button", { class:"icon-btn", type:"button", "aria-label":"Ver detalle", onclick: () => openSessionDrawer(s.id) }, [
+            el("span", { class:"icon", text:"›", "aria-hidden":"true" })
+          ])
+        ])
+      ]));
     });
   }
 
+  if (search && !search.dataset.bound) {
+    search.dataset.bound = "1";
+    search.addEventListener("input", rerenderHistoryDebounced);
+  }
+  if (range && !range.dataset.bound) {
+    range.dataset.bound = "1";
+    range.addEventListener("change", rerenderHistoryDebounced);
+  }
+}
+
+function openSessionDrawer(id) {
+  const s = State.sessions.find(x => x.id === id);
+  if (!s) return;
+
+  $("#drawerSessionTitle") && ($("#drawerSessionTitle").textContent = s.routineName || "Sesión");
+  $("#drawerSessionMeta") && ($("#drawerSessionMeta").textContent = `${formatDate(s.date, State.prefs)} • ${s.durationMin || 0} min • ${s.unit}`);
+
+  const pills = $("#drawerSummaryPills");
+  const cardio = $("#drawerCardio");
+  const exercises = $("#drawerExercises");
+  const notes = $("#drawerNotes");
+  if (!pills || !cardio || !exercises || !notes) return;
+
+  pills.innerHTML = "";
+  exercises.innerHTML = "";
+  notes.textContent = s.notes || "Sin notas.";
+
+  pills.appendChild(el("span", { class:"pill", text: `${(s.exercises || []).length} ejercicios` }));
+  pills.appendChild(el("span", { class:"pill", text: `${s.durationMin || 0} min` }));
+  if (s.rpe != null && s.rpe !== "") pills.appendChild(el("span", { class:"pill", text: `RPE ${s.rpe}` }));
+
+  cardio.textContent = s.cardio?.machine
+    ? `${s.cardio.machine} • ${s.cardio.minutes || 0} min • ${s.cardio.intensity || "—"}`
+    : "Sin cardio.";
+
+  if (s.exercises?.length) {
+    s.exercises.forEach(ex => {
+      exercises.appendChild(el("div", { class:"drawer-exercise" }, [
+        el("div", { class:"drawer-exercise__name", text: ex.name || "Ejercicio" }),
+        el("div", { class:"drawer-exercise__meta", text: `${ex.sets || 0} × ${ex.reps || "-"} @ ${ex.weight || 0} ${ex.unit || s.unit}` }),
+        ex.notes ? el("div", { class:"muted", text: ex.notes }) : el("div", { class:"muted", text:"" })
+      ]));
+    });
+  } else {
+    exercises.appendChild(el("div", { class:"muted", text:"Sin ejercicios." }));
+  }
+
+  $("#btnEditSession") && ($("#btnEditSession").onclick = () => {
+    State.cardioDraft = s.cardio || null;
+    setDraftSession({
+      routineId: s.routineId,
+      routineName: s.routineName,
+      date: todayISO(),
+      durationMin: s.durationMin,
+      unit: s.unit,
+      rpe: s.rpe,
+      notes: s.notes,
+      cardio: s.cardio || null,
+      exercises: (s.exercises || []).map(ex => ({ ...ex }))
+    });
+    closeDrawer("#drawerSession");
+    location.hash = "#new-session";
+    toast("Sesión cargada", "Se pasó al borrador para editarla.", "ok");
+  });
+
+  $("#btnDeleteSession") && ($("#btnDeleteSession").onclick = async () => {
+    const ok = await confirmDialog({
+      title: "Eliminar sesión",
+      text: `Eliminar "${s.routineName || "Sesión"}" del ${formatDate(s.date, State.prefs)}?`,
+      yesText: "Eliminar",
+      noText: "Cancelar"
+    });
+    if (!ok) return;
+    deleteSession(s.id);
+    closeDrawer("#drawerSession");
+    toast("Sesión eliminada", "Registro removido.", "warn");
+    scheduleRender();
+  });
+
+  openDrawer("#drawerSession");
+}
+
+function renderProgress() {
+  const tbody = $("#progressTbody");
+  const empty = $("#progressEmpty");
+  const wrap = $("#progressTableWrap");
+  const search = $("#progressSearch");
+  const metric = $("#progressMetric");
+  const range = $("#progressRange");
+  if (!tbody || !empty || !wrap) return;
+
+  const q = (search?.value || "").toLowerCase().trim();
+  const rangeStart = startDateFromRange(range?.value || "30");
+  const metricValue = metric?.value || "pr";
+  const byExercise = new Map();
+
+  for (const s of State.sessions) {
+    const dt = parseISODate(s.date);
+    if (rangeStart && dt && dt < rangeStart) continue;
+    for (const ex of (s.exercises || [])) {
+      const name = String(ex.name || "").trim();
+      if (!name) continue;
+      if (q && !name.toLowerCase().includes(q)) continue;
+      if (!byExercise.has(name)) byExercise.set(name, []);
+      byExercise.get(name).push({
+        date: s.date,
+        weight: Number(ex.weight || 0),
+        sets: Number(ex.sets || 0),
+        reps: String(ex.reps || "")
+      });
+    }
+  }
+
+  const rows = Array.from(byExercise.entries()).map(([name, hist]) => {
+    hist.sort((a, b) => (a.date < b.date ? 1 : -1));
+    const weights = hist.map(x => x.weight);
+    const best = weights.length ? Math.max(...weights) : 0;
+    const last = hist.length ? hist[0].weight : 0;
+    const frequency = hist.length;
+    const volume = hist.reduce((sum, item) => sum + (item.sets * Number(String(item.reps).split("/")[0] || 0) * item.weight), 0);
+    return {
+      name,
+      hist,
+      best,
+      last,
+      frequency,
+      volume,
+      trend: trendLabel([...weights].reverse()),
+      sortValue: metricValue === "last" ? last : metricValue === "volume" ? volume : metricValue === "freq" ? frequency : best
+    };
+  }).sort((a, b) => b.sortValue - a.sortValue || a.name.localeCompare(b.name));
+
+  if (!rows.length) {
+    empty.classList.remove("is-hidden");
+    wrap.classList.add("is-hidden");
+  } else {
+    empty.classList.add("is-hidden");
+    wrap.classList.remove("is-hidden");
+  }
+
+  if (!State.selectedExerciseName || !rows.some(row => row.name === State.selectedExerciseName)) {
+    State.selectedExerciseName = rows[0]?.name || null;
+  }
+
+  tbody.innerHTML = "";
+  rows.forEach(row => {
+    const tr = el("tr", {
+      onclick: () => {
+        State.selectedExerciseName = row.name;
+        renderProgress();
+      }
+    }, [
+      el("td", { text: row.name }),
+      el("td", { text: `${row.best} ${State.prefs.unit}` }),
+      el("td", { text: `${row.last} ${State.prefs.unit}` }),
+      el("td", { text: row.trend }),
+      el("td", { text: String(row.frequency) })
+    ]);
+    if (row.name === State.selectedExerciseName) tr.classList.add("is-selected");
+    tbody.appendChild(tr);
+  });
+
+  const selected = rows.find(row => row.name === State.selectedExerciseName);
+  const detail = $("#exerciseDetail");
+  const detailEmpty = $("#exerciseDetailEmpty");
+  const exerciseName = $("#exerciseName");
+  const exerciseMeta = $("#exerciseMeta");
+  const exerciseChart = $("#exerciseChart");
+  const historyList = $("#exerciseHistoryList");
+
+  if (selected && detail && detailEmpty && exerciseName && exerciseMeta && exerciseChart && historyList) {
+    detail.classList.remove("is-hidden");
+    detailEmpty.classList.add("is-hidden");
+    exerciseName.textContent = selected.name;
+    exerciseMeta.textContent = `${selected.frequency} registros • PR ${selected.best} ${State.prefs.unit}`;
+    exerciseChart.innerHTML = "";
+    exerciseChart.appendChild(el("div", { class:"muted", text: `Último: ${selected.last} ${State.prefs.unit} • Tendencia: ${selected.trend}` }));
+    historyList.innerHTML = "";
+    selected.hist.forEach(item => {
+      historyList.appendChild(el("div", { class:"item" }, [
+        el("div", { class:"item__left" }, [
+          el("div", { class:"item__title", text: formatDate(item.date, State.prefs) }),
+          el("div", { class:"muted item__meta", text: `${item.sets} × ${item.reps} @ ${item.weight} ${State.prefs.unit}` })
+        ]),
+        el("div", { class:"item__right" }, [
+          el("span", { class:"pill", text: `${item.weight} ${State.prefs.unit}` })
+        ])
+      ]));
+    });
+  }
+
+  $("#btnSetAsFocus") && ($("#btnSetAsFocus").onclick = () => {
+    if (!selected) return;
+    Store.set(LS_KEYS.focusExercise, { name: selected.name });
+    toast("Foco fijado", selected.name, "ok");
+    scheduleRender();
+  });
+
+  if (search && !search.dataset.bound) {
+    search.dataset.bound = "1";
+    search.addEventListener("input", debounce(() => scheduleRender(), 150));
+  }
+  if (metric && !metric.dataset.bound) {
+    metric.dataset.bound = "1";
+    metric.addEventListener("change", () => scheduleRender());
+  }
+  if (range && !range.dataset.bound) {
+    range.dataset.bound = "1";
+    range.addEventListener("change", () => scheduleRender());
+  }
+}
+
+function renderSettings() {
+  applyTheme();
   $("#btnResetAll") && ($("#btnResetAll").onclick = () => resetAllData());
 }
 
@@ -1898,6 +2207,7 @@ function init() {
   applyTheme();
   bindModalCloseHandlers();
   bindPrefsUIOnce();
+  bindShellActionsOnce();
   bindNavOnce();
   initRouter();
 

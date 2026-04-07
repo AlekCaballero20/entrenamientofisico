@@ -143,9 +143,10 @@ self.addEventListener('install', (event) => {
       await Promise.all(
         APP_SHELL.map(async (url) => {
           try {
-            const req = new Request(url, { cache: 'reload' });
+            const fetchUrl = `${url}${url.includes('?') ? '&' : '?'}v=${Date.now()}`;
+            const req = new Request(fetchUrl, { cache: 'reload' });
             const res = await fetch(req);
-            await safeCachePut(cache, req, res);
+            await safeCachePut(cache, url, res);
           } catch (_) {
             // Si algo no existe (por ejemplo icon faltante), no matamos el install.
           }
@@ -207,13 +208,13 @@ self.addEventListener('fetch', (event) => {
 
   // Navegación: sirve index.html desde cache (y lo revalida)
   if (isNavigation(req)) {
-    event.respondWith(staleWhileRevalidate('./index.html', CACHE_APP));
+    event.respondWith(networkFirst(req, CACHE_APP));
     return;
   }
 
   // App shell assets
   if (isAppShellRequest(req)) {
-    event.respondWith(staleWhileRevalidate(req, CACHE_APP));
+    event.respondWith(networkFirst(req, CACHE_APP));
     return;
   }
 

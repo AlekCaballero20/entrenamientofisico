@@ -62,28 +62,42 @@
 
       window.addEventListener('load', async () => {
         try {
-          // Ojo: GitHub Pages usa path relativo, esto está bien si sw.js está al lado.
-          const reg = await navigator.serviceWorker.register('./sw.js', { scope: './' });
+          const swUrl = './sw.js?v=2026-04-06-1';
+          const reg = await navigator.serviceWorker.register(swUrl, {
+            scope: './',
+            updateViaCache: 'none'
+          });
 
-          // Actualización “silenciosa” cuando hay SW nuevo
           if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
 
           reg.addEventListener('updatefound', () => {
             const sw = reg.installing;
             if (!sw) return;
             sw.addEventListener('statechange', () => {
-              // Cuando se instala el nuevo SW y ya tenías uno antes, recarga para tomar el cache nuevo
               if (sw.state === 'installed' && navigator.serviceWorker.controller) {
-                // Recarga suave: no interrumpe si estás editando algo en la UI (igual es mejor que quede en app.js)
-                // location.reload();
+                sw.postMessage({ type: 'SKIP_WAITING' });
               }
             });
           });
 
-          // Si el SW tomó control después del registro, todo bien
+          let refreshing = false;
           navigator.serviceWorker.addEventListener('controllerchange', () => {
-            // location.reload();
+            if (refreshing) return;
+            refreshing = true;
+            location.reload();
           });
+
+          const checkForUpdates = async () => {
+            try { await reg.update(); } catch (_) {}
+          };
+
+          window.addEventListener('focus', checkForUpdates);
+          window.addEventListener('online', checkForUpdates);
+          document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') checkForUpdates();
+          });
+
+          checkForUpdates();
         } catch (err) {
           console.warn('[PWA] No se pudo registrar el Service Worker:', err);
         }
@@ -115,7 +129,7 @@
         </div>
       </div>
 
-      <nav class="nav">
+      <nav class="nav" id="nav">
         <a class="nav__item is-active" href="#dashboard" data-route="dashboard" aria-current="page">
           <span class="nav__icon" aria-hidden="true">📊</span>
           <span class="nav__label">Dashboard</span>
@@ -776,10 +790,37 @@
       </main>
 
       <footer class="footer" role="contentinfo">
-        <div class="muted">GymOS • Offline • Local-first</div>
-        <div class="muted">v0.1 (MVP pro)</div>
+        <div class="muted">GymOS | Offline | Local-first</div>
+        <div class="muted">v0.1 MVP</div>
       </footer>
     </div>
+
+    <nav class="mobile-nav" aria-label="Navegacion movil">
+      <a class="nav__item is-active" href="#dashboard" data-route="dashboard" aria-current="page">
+        <span class="nav__icon" aria-hidden="true">D</span>
+        <span class="nav__label">Inicio</span>
+      </a>
+      <a class="nav__item" href="#routines" data-route="routines">
+        <span class="nav__icon" aria-hidden="true">R</span>
+        <span class="nav__label">Rutinas</span>
+      </a>
+      <a class="nav__item" href="#new-session" data-route="new-session">
+        <span class="nav__icon" aria-hidden="true">S</span>
+        <span class="nav__label">Sesion</span>
+      </a>
+      <a class="nav__item" href="#history" data-route="history">
+        <span class="nav__icon" aria-hidden="true">H</span>
+        <span class="nav__label">Historial</span>
+      </a>
+      <a class="nav__item" href="#progress" data-route="progress">
+        <span class="nav__icon" aria-hidden="true">P</span>
+        <span class="nav__label">Progreso</span>
+      </a>
+      <a class="nav__item" href="#settings" data-route="settings">
+        <span class="nav__icon" aria-hidden="true">A</span>
+        <span class="nav__label">Ajustes</span>
+      </a>
+    </nav>
 
     <!-- =========================
          MODALS / DRAWERS / TOAST
@@ -887,8 +928,28 @@
         </div>
 
         <div class="modal__foot">
+          <button id="btnDeleteCardio" class="btn btn--ghost" type="button">Quitar cardio</button>
           <button class="btn btn--ghost" type="button" data-close>Cancelar</button>
           <button id="btnSaveCardio" class="btn btn--primary" type="button">Guardar cardio</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: Session preview -->
+    <div id="modalSessionPreview" class="modal" role="dialog" aria-modal="true" aria-labelledby="modalSessionPreviewTitle" hidden>
+      <div class="modal__backdrop" data-close></div>
+      <div class="modal__panel" role="document">
+        <div class="modal__head">
+          <h3 id="modalSessionPreviewTitle">Vista previa de sesion</h3>
+          <button class="icon-btn" type="button" data-close aria-label="Cerrar">
+            <span class="icon" aria-hidden="true">x</span>
+          </button>
+        </div>
+
+        <div id="sessionPreviewBody" class="modal__body"></div>
+
+        <div class="modal__foot">
+          <button class="btn btn--ghost" type="button" data-close>Cerrar</button>
         </div>
       </div>
     </div>

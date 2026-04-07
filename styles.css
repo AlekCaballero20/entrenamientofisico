@@ -358,9 +358,7 @@ input, textarea, select {
 }
 
 @media (max-width: 980px) {
-  .sidebar {
-    display: none; /* mobile: later we can make it a drawer */
-  }
+  .sidebar { display: none; }
 }
 
 /* ---------------------------
@@ -413,6 +411,120 @@ input, textarea, select {
   background: rgba(255,255,255,.02);
   color: var(--muted);
   font-size: 12px;
+}
+
+.mobile-nav {
+  display: none;
+}
+
+@media (max-width: 980px) {
+  .main {
+    grid-template-rows: auto 1fr auto;
+  }
+
+  .topbar {
+    height: auto;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 14px;
+    flex-wrap: wrap;
+  }
+
+  .topbar__left,
+  .topbar__right {
+    width: 100%;
+  }
+
+  .topbar__right {
+    justify-content: space-between;
+    flex-wrap: wrap;
+  }
+
+  #btnQuickSession {
+    flex: 1 1 220px;
+    justify-content: center;
+    min-height: 46px;
+    white-space: normal;
+    text-align: center;
+  }
+
+  .content {
+    padding: 14px;
+    padding-bottom: 96px;
+  }
+
+  .footer {
+    padding: 12px 14px 88px;
+    flex-direction: column;
+    gap: 6px;
+    align-items: flex-start;
+  }
+
+  .mobile-nav {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 70;
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 8px;
+    padding: 10px 10px calc(10px + env(safe-area-inset-bottom, 0px));
+    border-top: 1px solid var(--line);
+    background: color-mix(in srgb, var(--bg) 82%, white 18%);
+    backdrop-filter: blur(var(--blur));
+    -webkit-backdrop-filter: blur(var(--blur));
+  }
+
+  .mobile-nav .nav__item {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    gap: 6px;
+    padding: 8px 4px;
+    text-align: center;
+  }
+
+  .mobile-nav .nav__icon {
+    width: 36px;
+    height: 36px;
+    font-size: 0;
+    position: relative;
+  }
+
+  .mobile-nav .nav__label {
+    font-size: 11px;
+    line-height: 1.1;
+  }
+
+  .mobile-nav .nav__item:nth-child(1) .nav__icon::before,
+  .mobile-nav .nav__item:nth-child(2) .nav__icon::before,
+  .mobile-nav .nav__item:nth-child(3) .nav__icon::before,
+  .mobile-nav .nav__item:nth-child(4) .nav__icon::before,
+  .mobile-nav .nav__item:nth-child(5) .nav__icon::before,
+  .mobile-nav .nav__item:nth-child(6) .nav__icon::before {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    font-size: 15px;
+    font-weight: 800;
+  }
+
+  .mobile-nav .nav__item:nth-child(1) .nav__icon::before { content: "D"; }
+  .mobile-nav .nav__item:nth-child(2) .nav__icon::before { content: "R"; }
+  .mobile-nav .nav__item:nth-child(3) .nav__icon::before { content: "S"; }
+  .mobile-nav .nav__item:nth-child(4) .nav__icon::before { content: "H"; }
+  .mobile-nav .nav__item:nth-child(5) .nav__icon::before { content: "P"; }
+  .mobile-nav .nav__item:nth-child(6) .nav__icon::before { content: "A"; }
+
+  .footer {
+    font-size: 11px;
+    line-height: 1.25;
+  }
+
+  .footer .muted:last-child {
+    display: none;
+  }
 }
 
 /* Scrollbar */
@@ -595,6 +707,46 @@ input, textarea, select {
 
 @media (max-width: 900px) {
   .list-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 860px) {
+  .search {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .card__head,
+  .routine-preview__top,
+  .routine-detail__top,
+  .exercise-detail__top,
+  .focus__top,
+  .item,
+  .split {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .item__right,
+  .confirm__actions,
+  .drawer__foot,
+  .modal__foot {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .item__right > *,
+  .confirm__actions > *,
+  .drawer__foot > *,
+  .modal__foot > *,
+  .card__foot > *,
+  .routine-detail__top .row > * {
+    flex: 1 1 auto;
+  }
+
+  .routine-detail__top .row {
+    width: 100%;
+    flex-wrap: wrap;
+  }
 }
 
 .tile {
@@ -857,6 +1009,14 @@ textarea.input { resize: vertical; min-height: 96px; }
 
 .table tbody tr:hover td {
   background: rgba(106,167,255,.06);
+}
+
+.table tbody tr.is-selected td {
+  background: rgba(106,167,255,.12);
+}
+
+.table tbody tr {
+  cursor: pointer;
 }
 
 /* ---------------------------
