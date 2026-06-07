@@ -1,10 +1,10 @@
 /* =========================================================
    GymOS - app.js (PRO)
-   Local-first training tracker (routines + sessions + progress)
+   Firebase-backed training tracker (routines + sessions + progress)
 
    Features:
    - Hash router (#dashboard, #routines, #new-session, #history, #progress, #settings)
-   - LocalStorage DB (routines, sessions, prefs)
+   - Firebase Auth + Firestore state sync
    - Seed routines from user's old notes
    - CRUD: routines, sessions
    - Metrics: weekly KPIs, volume, PR detection, heatmap, exercise progress table
@@ -24,15 +24,23 @@
 /* ---------------------------
    CONSTANTS / KEYS
 --------------------------- */
-const APP_VERSION = "0.2.0";
+const APP_VERSION = "0.3.0-firebase";
 
-const LS_KEYS = {
-  routines: "gymos.routines.v1",
-  sessions: "gymos.sessions.v1",
-  prefs: "gymos.prefs.v1",
-  draft: "gymos.draft.session.v1",
-  focusExercise: "gymos.focus.exercise.v1"
-};
+// Cache interna por usuario: no es un modo local de trabajo, solo evita perder
+// estado temporal mientras Firestore termina de responder.
+function lsKeys(uid) {
+  const prefix = uid ? `gymos.u.${uid}` : "gymos";
+  return {
+    routines: `${prefix}.routines.v1`,
+    sessions: `${prefix}.sessions.v1`,
+    prefs:    `${prefix}.prefs.v1`,
+    draft:    `${prefix}.draft.session.v1`,
+    focusExercise: `${prefix}.focus.exercise.v1`
+  };
+}
+
+// LS_KEYS se actualiza cuando el usuario se autentica (ver Auth.applyUser)
+let LS_KEYS = lsKeys(null);
 
 const ROUTES = ["dashboard","routines","new-session","history","progress","settings"];
 
@@ -42,6 +50,57 @@ const DEFAULT_PREFS = {
   unit: "lbs",        // lbs | kg
   autosave: "on",     // on | off
   dateFmt: "es-CO"    // es-CO | iso
+};
+
+/* ---------------------------
+   AUTH STATE
+--------------------------- */
+const Auth = {
+  user: null,      // firebase User object
+  ready: false,    // true cuando onAuthStateChanged disparó por primera vez
+
+  // Aplica un usuario autenticado: actualiza LS_KEYS y carga sus datos
+  applyUser(user) {
+    Auth.user = user;
+    LS_KEYS = lsKeys(user ? user.uid : null);
+  },
+
+  // Muestra u oculta la pantalla de login vs app shell
+  showLogin() {
+    const screen = document.getElementById("login-screen");
+    const app = document.getElementById("app");
+    if (screen) screen.classList.remove("is-hidden");
+    if (app) app.style.display = "none";
+    const mobileNav = document.querySelector(".mobile-nav");
+    if (mobileNav) mobileNav.style.display = "none";
+  },
+
+  showApp() {
+    const screen = document.getElementById("login-screen");
+    const app = document.getElementById("app");
+    if (screen) screen.classList.add("is-hidden");
+    if (app) app.style.display = "";
+    const mobileNav = document.querySelector(".mobile-nav");
+    if (mobileNav) mobileNav.style.display = "";
+  },
+
+  // Actualiza el avatar en el topbar
+  updateAvatar(user) {
+    const wrap = document.getElementById("userAvatar");
+    const img  = document.getElementById("userAvatarImg");
+    if (!wrap) return;
+    if (user) {
+      wrap.hidden = false;
+      if (img) {
+        img.src = user.photoURL || "";
+        img.alt = user.displayName || user.email || "Usuario";
+        img.title = user.displayName || user.email || "";
+      }
+    } else {
+      wrap.hidden = true;
+      if (img) { img.src = ""; img.alt = ""; }
+    }
+  }
 };
 
 /* ---------------------------
@@ -156,6 +215,225 @@ const Store = {
     try { localStorage.removeItem(key); } catch {}
   }
 };
+
+/* ---------------------------
+   FIREBASE SYNC HELPERS
+--------------------------- */
+let firebaseBootstrapped = false;
+let firebaseSaveTimer = null;
+let firebaseIsApplyingRemote = false;
+
+function cleanMediaUrl(value) {
+  return String(value || "").trim();
+}
+
+function withExerciseMedia(ex) {
+  const out = { ...(ex || {}) };
+  out.imageUrl = cleanMediaUrl(out.imageUrl || out.image || out.img || "");
+  out.videoUrl = cleanMediaUrl(out.videoUrl || out.video || out.videoLink || "");
+  return out;
+}
+
+function normalizeLoadedMedia() {
+  State.routines = (State.routines || []).map(r => ({
+    ...(r || {}),
+    exercises: Array.isArray(r?.exercises) ? r.exercises.map(withExerciseMedia) : []
+  }));
+  State.sessions = (State.sessions || []).map(s => ({
+    ...(s || {}),
+    exercises: Array.isArray(s?.exercises) ? s.exercises.map(withExerciseMedia) : []
+  }));
+}
+
+function appStatePayload() {
+  return {
+    version: APP_VERSION,
+    savedAt: new Date().toISOString(),
+    prefs: State.prefs,
+    routines: State.routines,
+    sessions: State.sessions
+  };
+}
+
+function payloadHasWorkoutData(payload) {
+  return !!payload && (
+    (Array.isArray(payload.routines) && payload.routines.length > 0) ||
+    (Array.isArray(payload.sessions) && payload.sessions.length > 0)
+  );
+}
+
+function updateFirebaseStatus(title, text, type="") {
+  const pill = $("#firebaseStatusPill");
+  const label = $("#firebaseStatusText");
+  const storage = $("#pillStorage");
+  const hint = $("#storageHint");
+
+  if (pill) {
+    pill.textContent = title || "Firebase";
+    pill.classList.toggle("pill--ok", type === "ok");
+    pill.classList.toggle("pill--warn", type === "warn");
+  }
+  if (label) label.textContent = text || "";
+  if (storage && title) storage.textContent = title;
+  if (hint && text) hint.textContent = text;
+}
+
+function applyRemoteState(payload) {
+  if (!payload || typeof payload !== "object") return false;
+  firebaseIsApplyingRemote = true;
+  try {
+    if (payload.prefs) State.prefs = { ...DEFAULT_PREFS, ...payload.prefs };
+    if (!["light","system","dark"].includes(State.prefs.theme)) State.prefs.theme = DEFAULT_PREFS.theme;
+    if (!State.prefs.unit || !["lbs","kg"].includes(State.prefs.unit)) State.prefs.unit = DEFAULT_PREFS.unit;
+
+    if (Array.isArray(payload.routines)) State.routines = payload.routines;
+    if (Array.isArray(payload.sessions)) State.sessions = payload.sessions;
+    normalizeLoadedMedia();
+
+    Store.set(LS_KEYS.prefs, State.prefs);
+    Store.set(LS_KEYS.routines, State.routines);
+    Store.set(LS_KEYS.sessions, State.sessions);
+    applyTheme();
+    return true;
+  } finally {
+    firebaseIsApplyingRemote = false;
+  }
+}
+
+async function pushFirebaseNow(showToast=true) {
+  const sync = window.FirebaseSync;
+  if (!sync || !sync.ready) {
+    updateFirebaseStatus("Firebase", "Firebase no está cargado. Revisa internet o los scripts CDN.", "warn");
+    if (showToast) toast("Firebase no disponible", "No se guardaron cambios en la nube.", "warn");
+    return false;
+  }
+
+  try {
+    updateFirebaseStatus("Guardando", "Guardando rutinas y sesiones en Firestore…");
+    await sync.ready;
+    await sync.saveState(appStatePayload());
+    updateFirebaseStatus("Firebase", "Sincronizado con Firestore.", "ok");
+    if (showToast) toast("Guardado en Firebase", "Tus datos quedaron sincronizados en la nube.", "ok");
+    return true;
+  } catch (err) {
+    console.error("[Firebase] push error", err);
+    updateFirebaseStatus("Firebase", "No se pudo guardar en Firebase. Revisa reglas de Firestore/Storage.", "warn");
+    if (showToast) toast("No se guardó en Firebase", "Revisa reglas o conexión antes de continuar.", "warn");
+    return false;
+  }
+}
+
+async function pullFirebaseNow(showToast=true) {
+  const sync = window.FirebaseSync;
+  if (!sync || !sync.ready) {
+    updateFirebaseStatus("Firebase", "Firebase no está cargado.", "warn");
+    if (showToast) toast("Firebase no disponible", "No pude leer la nube.", "warn");
+    return false;
+  }
+
+  try {
+    updateFirebaseStatus("Leyendo", "Cargando estado desde Firestore…");
+    await sync.ready;
+    const cloud = await sync.loadState();
+    if (!payloadHasWorkoutData(cloud)) {
+      updateFirebaseStatus("Firebase", "No hay datos en la nube todavía.", "warn");
+      if (showToast) toast("Nube vacía", "Crea datos o guarda el estado actual en Firebase.", "warn");
+      return false;
+    }
+    applyRemoteState(cloud);
+    updateFirebaseStatus("Firebase", "Datos cargados desde Firestore.", "ok");
+    if (showToast) toast("Datos cargados", "Se bajó la versión guardada en Firebase.", "ok");
+    scheduleRender();
+    return true;
+  } catch (err) {
+    console.error("[Firebase] pull error", err);
+    updateFirebaseStatus("Firebase", "No se pudo leer Firebase. No se cargaron datos de la nube.", "warn");
+    if (showToast) toast("No se leyó Firebase", "Revisa conexión o reglas.", "warn");
+    return false;
+  }
+}
+
+function queueFirebaseSave() {
+  if (firebaseIsApplyingRemote) return;
+  if (!firebaseBootstrapped) {
+    updateFirebaseStatus("Firebase", "Esperando conexión con Firebase para guardar.", "warn");
+    return;
+  }
+  const sync = window.FirebaseSync;
+  if (!sync || !sync.ready) {
+    updateFirebaseStatus("Firebase", "Firebase no disponible. No se guardaron cambios en la nube.", "warn");
+    return;
+  }
+
+  clearTimeout(firebaseSaveTimer);
+  firebaseSaveTimer = setTimeout(() => {
+    pushFirebaseNow(false);
+  }, 700);
+}
+
+function bindFirebaseStatusListener() {
+  if (window.__gymosFirebaseStatusBound) return;
+  window.__gymosFirebaseStatusBound = true;
+  window.addEventListener("gymos:firebase-status", (event) => {
+    const status = event.detail?.status || "";
+    if (status === "ready") updateFirebaseStatus("Firebase", "Conectado. Revisando nube…", "ok");
+    if (status === "synced") updateFirebaseStatus("Firebase", "Sincronizado con Firestore.", "ok");
+    if (status === "error") updateFirebaseStatus("Firebase", "Firebase no cargó. No hay modo local disponible.", "warn");
+  });
+}
+
+async function initFirebaseSync() {
+  bindFirebaseStatusListener();
+  const sync = window.FirebaseSync;
+  if (!sync || !sync.ready) {
+    updateFirebaseStatus("Firebase", "Firebase no está disponible. No se guardarán cambios hasta conectar.", "warn");
+    return;
+  }
+
+  try {
+    updateFirebaseStatus("Firebase", "Conectando con Firestore…");
+    await sync.ready;
+    const cloud = await sync.loadState();
+    const localPayload = appStatePayload();
+
+    if (payloadHasWorkoutData(cloud)) {
+      applyRemoteState(cloud);
+      updateFirebaseStatus("Firebase", "Datos cargados desde la nube.", "ok");
+      scheduleRender();
+    } else if (payloadHasWorkoutData(localPayload)) {
+      await sync.saveState(localPayload);
+      updateFirebaseStatus("Firebase", "Estado inicial guardado en Firestore.", "ok");
+    } else {
+      updateFirebaseStatus("Firebase", "Conectado. Crea o importa rutinas para sincronizar.", "ok");
+    }
+
+    firebaseBootstrapped = true;
+  } catch (err) {
+    console.error("[Firebase] init error", err);
+    firebaseBootstrapped = false;
+    updateFirebaseStatus("Firebase", "No se pudo conectar a Firebase. Revisa reglas, Auth o conexión.", "warn");
+  }
+}
+
+async function uploadExerciseImageForRow(row, file, imageInput, nameInput) {
+  const sync = window.FirebaseSync;
+  if (!sync || !sync.ready) {
+    toast("Firebase no disponible", "Pega una URL de imagen por ahora.", "warn");
+    return;
+  }
+
+  try {
+    imageInput.value = "Subiendo imagen…";
+    const url = await sync.uploadExerciseImage(file, nameInput?.value || "ejercicio");
+    imageInput.value = url;
+    toast("Imagen subida", "Quedó vinculada al ejercicio.", "ok");
+  } catch (err) {
+    console.error("[Firebase] image upload error", err);
+    imageInput.value = "";
+    toast("No subió la imagen", "Revisa Storage Rules o usa una URL externa.", "warn");
+  }
+}
+
 
 /* ---------------------------
    APP STATE
@@ -304,20 +582,22 @@ function buildSeedRoutines(unit="lbs") {
    DATA LOAD / SAVE
 --------------------------- */
 function loadAll() {
+  // LS_KEYS ya fue actualizado por Auth.applyUser() antes de llamar esto
   State.prefs = { ...DEFAULT_PREFS, ...(Store.get(LS_KEYS.prefs, null) || {}) };
   // En caso de prefs raras:
   if (!["light","system","dark"].includes(State.prefs.theme)) State.prefs.theme = DEFAULT_PREFS.theme;
 
   State.routines = Store.get(LS_KEYS.routines, []);
   State.sessions = Store.get(LS_KEYS.sessions, []);
+  normalizeLoadedMedia();
   State.selectedRoutineId = null;
   State.cardioDraft = null;
   State.sessionDraft = Store.get(LS_KEYS.draft, null);
 }
 
-function savePrefs() { Store.set(LS_KEYS.prefs, State.prefs); }
-function saveRoutines() { Store.set(LS_KEYS.routines, State.routines); }
-function saveSessions() { Store.set(LS_KEYS.sessions, State.sessions); }
+function savePrefs() { Store.set(LS_KEYS.prefs, State.prefs); queueFirebaseSave(); }
+function saveRoutines() { Store.set(LS_KEYS.routines, State.routines); queueFirebaseSave(); }
+function saveSessions() { Store.set(LS_KEYS.sessions, State.sessions); queueFirebaseSave(); }
 
 function setDraftSession(draft) {
   State.sessionDraft = draft;
@@ -550,6 +830,8 @@ function bindShellActionsOnce() {
   });
 
   $("#btnHistoryExportCSV")?.addEventListener("click", () => exportCSV());
+  $("#btnPushFirebase")?.addEventListener("click", () => pushFirebaseNow(true));
+  $("#btnPullFirebase")?.addEventListener("click", () => pullFirebaseNow(true));
 }
 
 /* ---------------------------
@@ -569,7 +851,9 @@ function createRoutine(data) {
       reps: String(x.reps || "").trim(),
       weight: Number(x.weight || 0),
       unit: x.unit || State.prefs.unit,
-      notes: String(x.notes || "").trim()
+      notes: String(x.notes || "").trim(),
+      imageUrl: cleanMediaUrl(x.imageUrl || x.image || ""),
+      videoUrl: cleanMediaUrl(x.videoUrl || x.video || "")
     })) : [],
     createdAt: now,
     updatedAt: now
@@ -633,7 +917,9 @@ function createSession(session) {
       reps: String(ex.reps || "").trim(),
       weight: Number(ex.weight || 0),
       unit: ex.unit || session.unit || State.prefs.unit,
-      notes: String(ex.notes || "").trim()
+      notes: String(ex.notes || "").trim(),
+      imageUrl: cleanMediaUrl(ex.imageUrl || ex.image || ""),
+      videoUrl: cleanMediaUrl(ex.videoUrl || ex.video || "")
     })) : [],
     createdAt: Date.now(),
     updatedAt: Date.now()
@@ -775,8 +1061,8 @@ function trendLabel(values) {
 function renderAll() {
   $("#todayLabel") && ($("#todayLabel").textContent = formatDate(todayISO(), State.prefs));
 
-  $("#pillStorage") && ($("#pillStorage").textContent = "Local");
-  $("#pillOffline") && ($("#pillOffline").textContent = "Offline-ready");
+  $("#pillStorage") && ($("#pillStorage").textContent = "Firebase");
+  $("#pillOffline") && ($("#pillOffline").textContent = "Nube requerida");
 
   if (State.route === "dashboard") renderDashboard();
   if (State.route === "routines") renderRoutines();
@@ -1017,6 +1303,57 @@ function renderRoutines() {
   }
 }
 
+
+function isHttpUrl(url) {
+  const s = cleanMediaUrl(url);
+  if (!s) return false;
+  try {
+    const u = new URL(s);
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function buildExerciseMedia(ex, options={}) {
+  const imageUrl = cleanMediaUrl(ex?.imageUrl);
+  const videoUrl = cleanMediaUrl(ex?.videoUrl);
+  const compact = !!options.compact;
+  const wrap = el("div", { class: compact ? "exercise-media exercise-media--compact" : "exercise-media" });
+  let hasMedia = false;
+
+  if (imageUrl && isHttpUrl(imageUrl)) {
+    const link = el("a", { class:"exercise-media__image", href:imageUrl, target:"_blank", rel:"noopener noreferrer", title:"Abrir imagen" }, [
+      el("img", { src:imageUrl, alt:`Imagen guía de ${ex?.name || "ejercicio"}`, loading:"lazy" })
+    ]);
+    wrap.appendChild(link);
+    hasMedia = true;
+  }
+
+  if (videoUrl && isHttpUrl(videoUrl)) {
+    wrap.appendChild(el("a", {
+      class:"media-chip",
+      href:videoUrl,
+      target:"_blank",
+      rel:"noopener noreferrer",
+      text: compact ? "Video" : "▶ Ver video"
+    }));
+    hasMedia = true;
+  }
+
+  if (!hasMedia) return null;
+  return wrap;
+}
+
+function attachExerciseMediaToCard(card, ex) {
+  const old = $(".exercise-media", card);
+  if (old) old.remove();
+  const media = buildExerciseMedia(ex, { compact:false });
+  if (!media) return;
+  const head = $(".exercise-card__head", card);
+  if (head) head.after(media);
+}
+
 function renderRoutineDetail() {
   const empty = $("#routineDetailEmpty");
   const detail = $("#routineDetail");
@@ -1041,12 +1378,14 @@ function renderRoutineDetail() {
 
   tbody.innerHTML = "";
   r.exercises.forEach(ex => {
+    const guide = buildExerciseMedia(ex, { compact:true }) || el("span", { class:"muted", text:"—" });
     tbody.appendChild(el("tr", {}, [
       el("td", { text: ex.name }),
       el("td", { text: String(ex.sets||0) }),
       el("td", { text: String(ex.reps||"") }),
       el("td", { text: `${ex.weight||0} ${ex.unit || State.prefs.unit}` }),
-      el("td", { text: ex.notes || "" })
+      el("td", { text: ex.notes || "" }),
+      el("td", {}, [guide])
     ]));
   });
 
@@ -1101,7 +1440,7 @@ function openRoutineModal({ mode="new", routine=null } = {}) {
 
   $("#btnAddExerciseRow").onclick = () => {
     $(".editor__empty", editor)?.remove();
-    editor.appendChild(renderEditorRow({ name:"", sets:3, reps:"10", weight:0, unit: State.prefs.unit, notes:"" }));
+    editor.appendChild(renderEditorRow({ name:"", sets:3, reps:"10", weight:0, unit: State.prefs.unit, notes:"", imageUrl:"", videoUrl:"" }));
   };
 
   $("#btnSaveRoutine").onclick = () => {
@@ -1131,11 +1470,27 @@ function openRoutineModal({ mode="new", routine=null } = {}) {
 function renderEditorRow(ex) {
   const row = el("div", { class:"editor-row" });
 
-  const name = el("input", { class:"input input--sm", type:"text", value: ex.name || "", placeholder:"Ejercicio" });
-  const sets = el("input", { class:"input input--sm", type:"number", min:"0", step:"1", value: ex.sets ?? 0, placeholder:"Sets" });
-  const reps = el("input", { class:"input input--sm", type:"text", value: ex.reps || "", placeholder:"Reps (ej. 10/20)" });
-  const weight = el("input", { class:"input input--sm", type:"number", min:"0", step:"0.5", value: ex.weight ?? 0, placeholder:"Peso" });
-  const notes = el("input", { class:"input input--sm", type:"text", value: ex.notes || "", placeholder:"Notas" });
+  const name = el("input", { class:"input input--sm", type:"text", value: ex.name || "", placeholder:"Ejercicio", "data-field":"name" });
+  const sets = el("input", { class:"input input--sm", type:"number", min:"0", step:"1", value: ex.sets ?? 0, placeholder:"Sets", "data-field":"sets" });
+  const reps = el("input", { class:"input input--sm", type:"text", value: ex.reps || "", placeholder:"Reps", "data-field":"reps" });
+  const weight = el("input", { class:"input input--sm", type:"number", min:"0", step:"0.5", value: ex.weight ?? 0, placeholder:"Peso", "data-field":"weight" });
+  const notes = el("input", { class:"input input--sm", type:"text", value: ex.notes || "", placeholder:"Notas", "data-field":"notes" });
+  const imageUrl = el("input", { class:"input input--sm", type:"url", value: cleanMediaUrl(ex.imageUrl || ""), placeholder:"URL imagen", "data-field":"imageUrl" });
+  const videoUrl = el("input", { class:"input input--sm", type:"url", value: cleanMediaUrl(ex.videoUrl || ""), placeholder:"Link video", "data-field":"videoUrl" });
+  const fileInput = el("input", { type:"file", accept:"image/*", hidden:true, "data-field":"imageFile" });
+
+  const uploadBtn = el("button", { class:"btn btn--ghost btn--sm", type:"button", title:"Subir imagen a Firebase Storage" }, [
+    el("span", { class:"icon", text:"🖼️", "aria-hidden":"true" }),
+    el("span", { text:"Subir" })
+  ]);
+
+  uploadBtn.onclick = () => fileInput.click();
+  fileInput.onchange = () => {
+    const file = fileInput.files && fileInput.files[0];
+    if (!file) return;
+    uploadExerciseImageForRow(row, file, imageUrl, name);
+    fileInput.value = "";
+  };
 
   const delBtn = el("button", { class:"icon-btn", type:"button", "aria-label":"Eliminar fila" }, [
     el("span", { class:"icon", text:"🗑️", "aria-hidden":"true" })
@@ -1157,7 +1512,11 @@ function renderEditorRow(ex) {
   row.appendChild(reps);
   row.appendChild(weight);
   row.appendChild(notes);
+  row.appendChild(imageUrl);
+  row.appendChild(videoUrl);
+  row.appendChild(uploadBtn);
   row.appendChild(delBtn);
+  row.appendChild(fileInput);
 
   return row;
 }
@@ -1166,20 +1525,26 @@ function collectRoutineModalData() {
   const editor = $("#routineExercisesEditor");
   const rows = $$(".editor-row", editor);
 
-  const exercises = rows.map(r => {
-    const inputs = $$("input", r);
-    const name = inputs[0]?.value || "";
-    const sets = inputs[1]?.value || 0;
-    const reps = inputs[2]?.value || "";
-    const weight = inputs[3]?.value || 0;
-    const notes = inputs[4]?.value || "";
+  const getField = (row, field) => row.querySelector(`[data-field="${field}"]`)?.value || "";
+
+  const exercises = rows.map(row => {
+    const name = getField(row, "name");
+    const sets = getField(row, "sets");
+    const reps = getField(row, "reps");
+    const weight = getField(row, "weight");
+    const notes = getField(row, "notes");
+    const imageUrl = getField(row, "imageUrl");
+    const videoUrl = getField(row, "videoUrl");
+
     return {
       name: String(name).trim(),
       sets: Number(sets || 0),
       reps: String(reps).trim(),
       weight: Number(weight || 0),
       unit: State.prefs.unit,
-      notes: String(notes).trim()
+      notes: String(notes).trim(),
+      imageUrl: cleanMediaUrl(imageUrl),
+      videoUrl: cleanMediaUrl(videoUrl)
     };
   }).filter(x => x.name);
 
@@ -1191,6 +1556,7 @@ function collectRoutineModalData() {
     exercises
   };
 }
+
 
 /* ---------------------------
    SEED ROUTINES
@@ -1293,6 +1659,9 @@ function loadExercisesFromSelectedRoutine() {
     inputs[3] && (inputs[3].value = ex.notes ?? "");
 
     node.dataset.exerciseName = ex.name;
+    node.dataset.imageUrl = cleanMediaUrl(ex.imageUrl || "");
+    node.dataset.videoUrl = cleanMediaUrl(ex.videoUrl || "");
+    attachExerciseMediaToCard(node, ex);
     wrap.appendChild(node);
   });
 
@@ -1324,7 +1693,9 @@ function collectSessionDraftFromUI() {
       reps: String(inputs[1]?.value || "").trim(),
       weight: Number(inputs[2]?.value || 0),
       unit,
-      notes: String(inputs[3]?.value || "").trim()
+      notes: String(inputs[3]?.value || "").trim(),
+      imageUrl: cleanMediaUrl(card.dataset.imageUrl || ""),
+      videoUrl: cleanMediaUrl(card.dataset.videoUrl || "")
     };
   }).filter(x => x.name);
 
@@ -1374,6 +1745,9 @@ function applyDraftToSessionUI(draft) {
       inputs[3] && (inputs[3].value = ex.notes ?? "");
 
       node.dataset.exerciseName = ex.name;
+      node.dataset.imageUrl = cleanMediaUrl(ex.imageUrl || "");
+      node.dataset.videoUrl = cleanMediaUrl(ex.videoUrl || "");
+      attachExerciseMediaToCard(node, ex);
       wrap.appendChild(node);
     });
 
@@ -1546,11 +1920,14 @@ function previewSession() {
   if (draft.exercises.length) {
     const list = el("div", { class:"preview__list" });
     draft.exercises.forEach(ex => {
-      list.appendChild(el("div", { class:"preview__row" }, [
+      const row = el("div", { class:"preview__row" }, [
         el("div", { class:"preview__row-title", text: ex.name }),
         el("div", { class:"muted", text: `${ex.sets}×${ex.reps} @ ${ex.weight} ${ex.unit}` }),
         ex.notes ? el("div", { class:"muted", text: ex.notes }) : el("div", { class:"muted", text:"" })
-      ]));
+      ]);
+      const media = buildExerciseMedia(ex, { compact:true });
+      if (media) row.appendChild(media);
+      list.appendChild(row);
     });
     wrap.appendChild(list);
   } else {
@@ -1820,7 +2197,7 @@ function exportJSON() {
 
 function exportCSV() {
   const rows = [];
-  rows.push(["date","routineName","durationMin","unit","rpe","cardioMachine","cardioMinutes","exerciseName","sets","reps","weight","notes"].join(","));
+  rows.push(["date","routineName","durationMin","unit","rpe","cardioMachine","cardioMinutes","exerciseName","sets","reps","weight","notes","imageUrl","videoUrl"].join(","));
   for (const s of State.sessions) {
     const cardioMachine = s.cardio?.machine || "";
     const cardioMinutes = s.cardio?.minutes || "";
@@ -1838,7 +2215,9 @@ function exportCSV() {
           ex.sets||0,
           csvSafe(ex.reps||""),
           ex.weight||0,
-          csvSafe(ex.notes||"")
+          csvSafe(ex.notes||""),
+          csvSafe(ex.imageUrl||""),
+          csvSafe(ex.videoUrl||"")
         ].join(","));
       }
     } else {
@@ -1850,7 +2229,7 @@ function exportCSV() {
         s.rpe ?? "",
         csvSafe(cardioMachine),
         cardioMinutes,
-        "",0,"",0,csvSafe(s.notes||"")
+        "",0,"",0,csvSafe(s.notes||""),"",""
       ].join(","));
     }
   }
@@ -1877,6 +2256,7 @@ function importJSONFromFile(file) {
       if (data.prefs) State.prefs = { ...DEFAULT_PREFS, ...data.prefs };
       if (Array.isArray(data.routines)) State.routines = data.routines;
       if (Array.isArray(data.sessions)) State.sessions = data.sessions;
+      normalizeLoadedMedia();
       savePrefs(); saveRoutines(); saveSessions();
       applyTheme();
       toast("Importado", "Datos cargados.", "ok");
@@ -1892,11 +2272,16 @@ function importJSONFromFile(file) {
 async function resetAllData() {
   const ok = await confirmDialog({
     title: "Reiniciar TODO",
-    text: "Esto borra rutinas, sesiones y preferencias. No hay botón de arrepentimiento.",
+    text: "Esto borra rutinas, sesiones y preferencias en Firebase. No hay botón de arrepentimiento.",
     yesText: "Borrar todo",
     noText: "Cancelar"
   });
   if (!ok) return;
+  if (!firebaseBootstrapped) {
+    updateFirebaseStatus("Firebase", "Conecta Firebase antes de reiniciar datos.", "warn");
+    toast("Firebase requerido", "No se reinició porque la nube no está conectada.", "warn");
+    return;
+  }
   Store.del(LS_KEYS.prefs);
   Store.del(LS_KEYS.routines);
   Store.del(LS_KEYS.sessions);
@@ -1904,7 +2289,12 @@ async function resetAllData() {
   Store.del(LS_KEYS.focusExercise);
   loadAll();
   applyTheme();
-  toast("Reiniciado", "Quedó como nuevo. Como tu motivación el lunes.", "ok");
+  const saved = await pushFirebaseNow(false);
+  if (!saved) {
+    toast("No se reinició en Firebase", "Revisa conexión o reglas antes de continuar.", "warn");
+    return;
+  }
+  toast("Reiniciado", "Firebase quedó limpio para este usuario.", "ok");
   scheduleRender();
 }
 
@@ -2007,11 +2397,14 @@ function openSessionDrawer(id) {
 
   if (s.exercises?.length) {
     s.exercises.forEach(ex => {
-      exercises.appendChild(el("div", { class:"drawer-exercise" }, [
+      const node = el("div", { class:"drawer-exercise" }, [
         el("div", { class:"drawer-exercise__name", text: ex.name || "Ejercicio" }),
         el("div", { class:"drawer-exercise__meta", text: `${ex.sets || 0} × ${ex.reps || "-"} @ ${ex.weight || 0} ${ex.unit || s.unit}` }),
         ex.notes ? el("div", { class:"muted", text: ex.notes }) : el("div", { class:"muted", text:"" })
-      ]));
+      ]);
+      const media = buildExerciseMedia(ex, { compact:true });
+      if (media) node.appendChild(media);
+      exercises.appendChild(node);
     });
   } else {
     exercises.appendChild(el("div", { class:"muted", text:"Sin ejercicios." }));
@@ -2187,6 +2580,109 @@ function renderSettings() {
   $("#btnResetAll") && ($("#btnResetAll").onclick = () => resetAllData());
 }
 
+
+/* ---------------------------
+
+   AUTH HANDLERS
+--------------------------- */
+
+function bindAuthUI() {
+  // Botón "Entrar con Google" en pantalla de login
+  const btnGoogle = document.getElementById("btnGoogleSignIn");
+  if (btnGoogle && !btnGoogle.dataset.bound) {
+    btnGoogle.dataset.bound = "1";
+    btnGoogle.addEventListener("click", async () => {
+      const sync = window.FirebaseSync;
+      if (!sync || !sync.ready) {
+        showLoginError("Firebase no disponible. Revisa tu conexión a internet.");
+        return;
+      }
+      btnGoogle.disabled = true;
+      btnGoogle.textContent = "Conectando…";
+      hideLoginError();
+      try {
+        await sync.signInWithGoogle();
+        // onAuthStateChanged en firebase-sync.js manejará el resultado
+      } catch (err) {
+        console.error("[Auth] Error login Google:", err);
+        btnGoogle.disabled = false;
+        btnGoogle.innerHTML = `<svg class="btn-google__icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg> Entrar con Google`;
+        showLoginError(err.code === "auth/popup-closed-by-user" ? "Cerraste el popup. Inténtalo de nuevo." : "No se pudo iniciar sesión. Intenta de nuevo.");
+      }
+    });
+  }
+
+  // Botón "Cerrar sesión" en topbar
+  const btnSignOut = document.getElementById("btnSignOut");
+  if (btnSignOut && !btnSignOut.dataset.bound) {
+    btnSignOut.dataset.bound = "1";
+    btnSignOut.addEventListener("click", async () => {
+      const sync = window.FirebaseSync;
+      if (sync && sync.ready) {
+        try { await sync.signOut(); } catch (e) { console.warn("[Auth] signOut error", e); }
+      }
+      // onAuthStateChanged en firebase-sync.js disparará gymos:auth-changed con user=null
+    });
+  }
+}
+
+function showLoginError(msg) {
+  const el = document.getElementById("loginError");
+  if (!el) return;
+  el.textContent = msg;
+  el.hidden = false;
+}
+
+function hideLoginError() {
+  const el = document.getElementById("loginError");
+  if (el) el.hidden = true;
+}
+
+function resetGoogleBtn() {
+  const btn = document.getElementById("btnGoogleSignIn");
+  if (!btn) return;
+  btn.disabled = false;
+  btn.innerHTML = `<svg class="btn-google__icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg> Entrar con Google`;
+}
+
+function bindAuthEvents() {
+  // Evento: usuario autenticado (correo en whitelist)
+  window.addEventListener("gymos:auth-changed", (e) => {
+    const user = e.detail && e.detail.user;
+
+    if (user) {
+      // Usuario válido → inicializar app con sus datos
+      Auth.applyUser(user);
+      Auth.updateAvatar(user);
+      loadAll();
+      applyTheme();
+      firebaseBootstrapped = false; // Forzar re-sync con datos del nuevo usuario
+      initFirebaseSync();
+      // Arrancar el router (solo la primera vez; el guard dataset.bound lo protege)
+      initRouter();
+      scheduleRender();
+      Auth.showApp();
+      hideLoginError();
+      resetGoogleBtn();
+      toast("Bienvenido 👋", user.displayName || user.email || "", "ok");
+    } else {
+      // Sin usuario → mostrar login
+      Auth.applyUser(null);
+      Auth.updateAvatar(null);
+      firebaseBootstrapped = false;
+      Auth.showLogin();
+    }
+  });
+
+  // Evento: correo no autorizado
+  window.addEventListener("gymos:auth-unauthorized", (e) => {
+    const email = e.detail && e.detail.email;
+    showLoginError(`El correo ${email || ""} no está autorizado para usar esta app.`);
+    resetGoogleBtn();
+    Auth.showLogin();
+  });
+}
+
 /* --------------------------- GLOBAL NAV / INIT --------------------------- */
 function bindNavOnce() {
   const nav = $("#nav");
@@ -2203,19 +2699,30 @@ function bindNavOnce() {
 }
 
 function init() {
-  loadAll();
-  applyTheme();
+  // La app empieza mostrando solo la pantalla de login
+  Auth.showLogin();
+
+  // Inicializar UI base (modals, prefs, shell) — sin datos de usuario aún
   bindModalCloseHandlers();
   bindPrefsUIOnce();
   bindShellActionsOnce();
   bindNavOnce();
-  initRouter();
+  bindAuthUI();
+  bindAuthEvents();
 
-  // Seed opcional: si está vacío, dejamos botón para seed (no auto para que no invada)
-  // pero si quieres auto-seed, descomenta:
-  // if (!State.routines.length) { State.routines = buildSeedRoutines(State.prefs.unit); saveRoutines(); }
-
-  scheduleRender();
+  // Esperar a Firebase SDK + Auth para manejar el estado
+  // El evento gymos:auth-changed mostrará la app cuando haya un usuario válido
+  const waitForSync = () => {
+    const sync = window.FirebaseSync;
+    if (sync && sync.ready) {
+      // Firebase listo: onAuthStateChanged ya está corriendo en firebase-sync.js
+      // Si el usuario ya tenía sesión, el evento llegará automáticamente
+      return;
+    }
+    // Firebase no cargó aún — intentar más tarde
+    setTimeout(waitForSync, 200);
+  };
+  waitForSync();
 }
 
 document.addEventListener("DOMContentLoaded", init);

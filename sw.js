@@ -1,11 +1,11 @@
 /* =============================================================================
    GymOS — sw.js (PRO)
-   PWA Service Worker: Offline cache + sane update strategy (GitHub Pages friendly)
+   PWA Service Worker: app cache + sane update strategy (GitHub Pages friendly)
 
    Strategy
    - App Shell (html/css/js/manifest/icons): stale-while-revalidate
    - Navigation (SPA): serve cached index.html, update in background
-   - Runtime (same-origin GET): network-first w/ cache fallback
+   - Runtime (same-origin GET): network-first w/ cache only for app assets
    - Versioned caches + cleanup on activate
    - Supports SKIP_WAITING via postMessage
 
@@ -16,12 +16,12 @@
 
 'use strict';
 
-const SW_VERSION = 'gymos-v1.1.0'; // ⬅️ súbelo cuando hagas cambios
+const SW_VERSION = 'gymos-v1.2.0-firebase'; // ⬅️ súbelo cuando hagas cambios
 const PREFIX = 'gymos';
 const CACHE_APP = `${PREFIX}-app-${SW_VERSION}`;
 const CACHE_RUNTIME = `${PREFIX}-runtime-${SW_VERSION}`;
 
-// App shell: lo mínimo para que la app arranque offline sí o sí
+// App shell cache: acelera la PWA, pero Firebase sigue siendo obligatorio.
 const APP_SHELL = [
   './',
   './index.html',
@@ -29,8 +29,7 @@ const APP_SHELL = [
   './manifest.webmanifest',
 
   // JS (tu orden real)
-  './db.js',
-  './seed.js',
+  './firebase-sync.js',
   './app.js',
 
   // Icons (tu estructura real: /icons)
@@ -60,8 +59,7 @@ function isAppShellRequest(req) {
     p.endsWith('/index.html') ||
     p.endsWith('/styles.css') ||
     p.endsWith('/app.js') ||
-    p.endsWith('/db.js') ||
-    p.endsWith('/seed.js') ||
+    p.endsWith('/firebase-sync.js') ||
     p.endsWith('/manifest.webmanifest') ||
     p.includes('/icons/')
   );

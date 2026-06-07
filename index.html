@@ -8,7 +8,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
 
   <title>GymOS • Registro de Entrenamiento</title>
-  <meta name="description" content="GymOS: rutinas, sesiones y progreso. Registro offline tipo app para entrenar con claridad." />
+  <meta name="description" content="GymOS: rutinas, sesiones y progreso sincronizados con Firebase." />
 
   <!-- Si lo vas a publicar real, cambia a index,follow -->
   <meta name="robots" content="noindex,nofollow" />
@@ -44,16 +44,21 @@
   <link rel="stylesheet" href="./styles.css" />
 
   <!-- =========================
-       JS (orden: data -> seed -> app)
+       JS (orden: Firebase -> app)
        defer = no bloquea render
   ========================== -->
-  <script defer src="./db.js"></script>
-  <script defer src="./seed.js"></script>
+  <!-- Firebase compat SDK: mantiene esta app como HTML/CSS/JS estático, sin bundler ni drama ceremonial. -->
+  <script defer src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
+  <script defer src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
+  <script defer src="https://www.gstatic.com/firebasejs/10.13.2/firebase-storage-compat.js"></script>
+  <script defer src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
+  <script defer src="./firebase-sync.js"></script>
+
   <script defer src="./app.js"></script>
 
   <!-- =========================
        Service Worker (PWA)
-       - Mantiene tu app offline.
+       - Mantiene la app actualizada como PWA.
        - No te rompe nada si no soporta SW.
   ========================== -->
   <script>
@@ -62,7 +67,7 @@
 
       window.addEventListener('load', async () => {
         try {
-          const swUrl = './sw.js?v=2026-04-06-1';
+          const swUrl = './sw.js?v=2026-06-07-firebase-1';
           const reg = await navigator.serviceWorker.register(swUrl, {
             scope: './',
             updateViaCache: 'none'
@@ -107,6 +112,30 @@
 </head>
 
 <body>
+
+  <!-- =========================
+       PANTALLA DE LOGIN
+       Se muestra hasta que el usuario se autentique
+  ========================== -->
+  <div id="login-screen" class="login-screen" aria-label="Inicio de sesión">
+    <div class="login-card">
+      <div class="login-card__logo" aria-hidden="true">🏋️</div>
+      <div class="login-card__title">GymOS</div>
+      <div class="login-card__subtitle">Registro &amp; Progreso</div>
+      <p class="login-card__desc">Tu entrenamiento, tu historia.<br>Inicia sesión para acceder.</p>
+      <button id="btnGoogleSignIn" class="btn-google" type="button">
+        <svg class="btn-google__icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+          <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+          <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/>
+          <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+        </svg>
+        Entrar con Google
+      </button>
+      <div id="loginError" class="login-card__error" hidden></div>
+      <div class="login-card__hint">Solo acceso para usuarios autorizados.</div>
+    </div>
+  </div>
   <!-- =========================
        APP SHELL
   ========================== -->
@@ -165,11 +194,11 @@
         <div class="mini-card">
           <div class="mini-card__title">Estado</div>
           <div class="mini-card__row">
-            <span class="pill" id="pillStorage">Local</span>
-            <span class="pill pill--ok" id="pillOffline">Offline-ready</span>
+            <span class="pill" id="pillStorage">Firebase</span>
+            <span class="pill pill--ok" id="pillOffline">Nube requerida</span>
           </div>
           <div class="mini-card__hint" id="storageHint">
-            Tus datos quedan en este dispositivo (por ahora).
+            Tus datos se guardan en Firebase. Necesitas conexión para sincronizar cambios.
           </div>
         </div>
 
@@ -215,6 +244,14 @@
           <button id="btnHelp" class="icon-btn" type="button" aria-label="Ayuda">
             <span class="icon" aria-hidden="true">❔</span>
           </button>
+
+          <!-- Avatar + cerrar sesión -->
+          <div id="userAvatar" class="user-avatar" title="Cerrar sesión" hidden>
+            <img id="userAvatarImg" class="user-avatar__img" src="" alt="" />
+            <button id="btnSignOut" class="user-avatar__signout" type="button" aria-label="Cerrar sesión">
+              <span class="icon" aria-hidden="true">↩</span>
+            </button>
+          </div>
         </div>
       </header>
 
@@ -440,6 +477,7 @@
                             <th>Reps</th>
                             <th>Peso</th>
                             <th>Notas</th>
+                            <th>Guía</th>
                           </tr>
                         </thead>
                         <tbody id="routineExercisesTbody"></tbody>
@@ -747,6 +785,45 @@
 
             <article class="card">
               <div class="card__head">
+                <h2>Firebase</h2>
+                <div class="muted">Sincronización en la nube e imágenes</div>
+              </div>
+
+              <div class="card__body">
+                <div class="stack">
+                  <div class="row row--between">
+                    <div>
+                      <div class="label">Estado</div>
+                      <div class="muted" id="firebaseStatusText">Preparando conexión…</div>
+                    </div>
+                    <span class="pill" id="firebaseStatusPill">Firebase</span>
+                  </div>
+
+                  <div class="row row--between">
+                    <div>
+                      <div class="label">Guardar en Firebase</div>
+                      <div class="muted">Sincroniza rutinas y sesiones actuales en Firestore</div>
+                    </div>
+                    <button id="btnPushFirebase" class="btn" type="button">Guardar nube</button>
+                  </div>
+
+                  <div class="row row--between">
+                    <div>
+                      <div class="label">Cargar datos de Firebase</div>
+                      <div class="muted">Recarga el estado guardado en la nube</div>
+                    </div>
+                    <button id="btnPullFirebase" class="btn" type="button">Recargar nube</button>
+                  </div>
+                </div>
+
+                <div class="note muted">
+                  Las imágenes se suben a Firebase Storage y en las rutinas queda guardado el enlace. Los videos van como links, por ejemplo YouTube, Drive o Vimeo.
+                </div>
+              </div>
+            </article>
+
+            <article class="card">
+              <div class="card__head">
                 <h2>Datos</h2>
                 <div class="muted">Importar, exportar y reiniciar</div>
               </div>
@@ -774,7 +851,7 @@
                   <div class="row row--between">
                     <div>
                       <div class="label danger">Reiniciar todo</div>
-                      <div class="muted">Borra rutinas y sesiones de este dispositivo</div>
+                      <div class="muted">Borra rutinas y sesiones y sincroniza el cambio en Firebase</div>
                     </div>
                     <button id="btnResetAll" class="btn btn--danger" type="button">Reiniciar</button>
                   </div>
@@ -790,8 +867,8 @@
       </main>
 
       <footer class="footer" role="contentinfo">
-        <div class="muted">GymOS | Offline | Local-first</div>
-        <div class="muted">v0.1 MVP</div>
+        <div class="muted">GymOS | Firebase</div>
+        <div class="muted">v0.3 Firebase</div>
       </footer>
     </div>
 

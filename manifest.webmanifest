@@ -1,7 +1,7 @@
 {
   "name": "GymOS - Entrenamiento",
   "short_name": "GymOS",
-  "description": "Registro y seguimiento de entrenamiento: rutinas, sesiones, cardio, progreso y metricas. Local-first, offline-ready.",
+  "description": "Registro y seguimiento de entrenamiento: rutinas, sesiones, cardio, progreso y metricas sincronizados con Firebase.",
   "lang": "es-CO",
   "dir": "ltr",
   "id": "./?app=gymos",
