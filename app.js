@@ -35,14 +35,15 @@ function lsKeys(uid) {
     sessions: `${prefix}.sessions.v1`,
     prefs:    `${prefix}.prefs.v1`,
     draft:    `${prefix}.draft.session.v1`,
-    focusExercise: `${prefix}.focus.exercise.v1`
+    focusExercise: `${prefix}.focus.exercise.v1`,
+    objectives: `${prefix}.objectives.v1`
   };
 }
 
 // LS_KEYS se actualiza cuando el usuario se autentica (ver Auth.applyUser)
 let LS_KEYS = lsKeys(null);
 
-const ROUTES = ["dashboard","routines","new-session","history","progress","settings"];
+const ROUTES = ["dashboard","routines","new-session","history","progress","settings","goals"];
 
 // Musicala-ish: light by default 👀
 const DEFAULT_PREFS = {
@@ -251,14 +252,16 @@ function appStatePayload() {
     savedAt: new Date().toISOString(),
     prefs: State.prefs,
     routines: State.routines,
-    sessions: State.sessions
+    sessions: State.sessions,
+    objectives: State.objectives
   };
 }
 
 function payloadHasWorkoutData(payload) {
   return !!payload && (
     (Array.isArray(payload.routines) && payload.routines.length > 0) ||
-    (Array.isArray(payload.sessions) && payload.sessions.length > 0)
+    (Array.isArray(payload.sessions) && payload.sessions.length > 0) ||
+    (Array.isArray(payload.objectives) && payload.objectives.length > 0)
   );
 }
 
@@ -288,11 +291,14 @@ function applyRemoteState(payload) {
 
     if (Array.isArray(payload.routines)) State.routines = payload.routines;
     if (Array.isArray(payload.sessions)) State.sessions = payload.sessions;
+    if (Array.isArray(payload.objectives)) State.objectives = payload.objectives;
+    else State.objectives = [];
     normalizeLoadedMedia();
 
     Store.set(LS_KEYS.prefs, State.prefs);
     Store.set(LS_KEYS.routines, State.routines);
     Store.set(LS_KEYS.sessions, State.sessions);
+    Store.set(LS_KEYS.objectives, State.objectives);
     applyTheme();
     return true;
   } finally {
@@ -442,6 +448,7 @@ const State = {
   prefs: { ...DEFAULT_PREFS },
   routines: [],
   sessions: [],
+  objectives: [],
   selectedRoutineId: null,
   selectedExerciseName: null,
   cardioDraft: null,
@@ -578,6 +585,65 @@ function buildSeedRoutines(unit="lbs") {
   return [day1, day2, day3, day4, day5, day6, cardio];
 }
 
+const RECOMMENDED_ROUTINES = [
+  {
+    name: "Push (Empuje) • Fuerza y Volumen",
+    tag: "Hipertrofia",
+    targetMin: 60,
+    cardioSuggest: "10 min Caminadora suave",
+    description: "Enfocado en pecho, hombros y tríceps. El motor de tus empujes.",
+    exercises: [
+      { name: "Press de banca plano", sets: 4, reps: "8-12", weight: 45, notes: "Controlar bajada" },
+      { name: "Press militar con mancuernas", sets: 3, reps: "10", weight: 20, notes: "Espalda apoyada" },
+      { name: "Aperturas inclinado mancuerna", sets: 3, reps: "12", weight: 15, notes: "Estiramiento máximo" },
+      { name: "Fondos de tríceps", sets: 3, reps: "10", weight: 0, notes: "Inclinarse adelante" },
+      { name: "Extensión de tríceps en polea", sets: 3, reps: "12", weight: 15, notes: "Codos pegados al cuerpo" }
+    ]
+  },
+  {
+    name: "Pull (Tracción) • Espalda y Bíceps",
+    tag: "Hipertrofia",
+    targetMin: 60,
+    cardioSuggest: "10 min Escaladora",
+    description: "Desarrolla una espalda fuerte e imponente junto con tus bíceps.",
+    exercises: [
+      { name: "Dominadas o Jalón al pecho", sets: 4, reps: "8-10", weight: 60, notes: "Retraer escápulas" },
+      { name: "Remo con barra", sets: 3, reps: "10", weight: 40, notes: "Mantener core firme" },
+      { name: "Vuelos posteriores mancuerna", sets: 3, reps: "12", weight: 10, notes: "Enfoque deltoides post" },
+      { name: "Curl de bíceps con barra", sets: 3, reps: "10", weight: 25, notes: "Sin balanceo" },
+      { name: "Curl martillo mancuerna", sets: 3, reps: "12", weight: 12, notes: "Agarre neutro" }
+    ]
+  },
+  {
+    name: "Pérdida de Grasa • HIIT Funcional",
+    tag: "Cardio",
+    targetMin: 40,
+    cardioSuggest: "20 min Spinning intervalos",
+    description: "Rutina explosiva de cuerpo completo para quemar calorías y ganar resistencia.",
+    exercises: [
+      { name: "Burpees", sets: 3, reps: "15", weight: 0, notes: "Ritmo constante" },
+      { name: "Sentadilla libre explosiva", sets: 3, reps: "20", weight: 0, notes: "Velocidad media" },
+      { name: "Flexiones de pecho", sets: 3, reps: "15", weight: 0, notes: "Modificar de rodillas si es necesario" },
+      { name: "Plank (Plancha abdominal)", sets: 3, reps: "45s", weight: 0, notes: "Core muy apretado" },
+      { name: "Escaladores (Mountain climbers)", sets: 3, reps: "30s", weight: 0, notes: "Cardio a tope" }
+    ]
+  },
+  {
+    name: "Core de Acero y Estabilidad",
+    tag: "Core",
+    targetMin: 30,
+    cardioSuggest: "5 min Caminadora calentamiento",
+    description: "Fortalece tu sección media, mejora postura y previene dolores lumbares.",
+    exercises: [
+      { name: "Crunch abdominal con peso", sets: 4, reps: "15", weight: 10, notes: "Contracción lenta" },
+      { name: "Elevación de piernas colgado", sets: 3, reps: "12", weight: 0, notes: "No balancear piernas" },
+      { name: "Plancha lateral (ambos lados)", sets: 3, reps: "30s", weight: 0, notes: "Cadera arriba" },
+      { name: "Giros rusos (Russian twists)", sets: 3, reps: "20", weight: 5, notes: "Girar tronco completo" },
+      { name: "Superman lumbar", sets: 3, reps: "15", weight: 0, notes: "Sostener 2s arriba" }
+    ]
+  }
+];
+
 /* ---------------------------
    DATA LOAD / SAVE
 --------------------------- */
@@ -589,6 +655,7 @@ function loadAll() {
 
   State.routines = Store.get(LS_KEYS.routines, []);
   State.sessions = Store.get(LS_KEYS.sessions, []);
+  State.objectives = Store.get(LS_KEYS.objectives, []);
   normalizeLoadedMedia();
   State.selectedRoutineId = null;
   State.cardioDraft = null;
@@ -598,6 +665,7 @@ function loadAll() {
 function savePrefs() { Store.set(LS_KEYS.prefs, State.prefs); queueFirebaseSave(); }
 function saveRoutines() { Store.set(LS_KEYS.routines, State.routines); queueFirebaseSave(); }
 function saveSessions() { Store.set(LS_KEYS.sessions, State.sessions); queueFirebaseSave(); }
+function saveObjectives() { Store.set(LS_KEYS.objectives, State.objectives); queueFirebaseSave(); }
 
 function setDraftSession(draft) {
   State.sessionDraft = draft;
@@ -727,7 +795,8 @@ function setRoute(route) {
     "new-session": ["Nueva sesión", "Registra lo que hiciste hoy."],
     "history": ["Historial", "Busca, revisa y compara sesiones."],
     "progress": ["Progreso", "PRs, tendencias y frecuencia por ejercicio."],
-    "settings": ["Ajustes", "Tema, unidad, import/export y reinicio."]
+    "settings": ["Ajustes", "Tema, unidad, import/export y reinicio."],
+    "goals": ["Objetivos & Sugerencias", "Establece tus metas y adopta rutinas recomendadas."]
   };
   const [t, s] = titleMap[route] || ["GymOS", ""];
   $("#pageTitle").textContent = t;
@@ -1070,6 +1139,7 @@ function renderAll() {
   if (State.route === "history") renderHistory();
   if (State.route === "progress") renderProgress();
   if (State.route === "settings") renderSettings();
+  if (State.route === "goals") renderGoals();
 }
 
 /* ---------------------------
@@ -2185,7 +2255,8 @@ function exportJSON() {
     exportedAt: new Date().toISOString(),
     prefs: State.prefs,
     routines: State.routines,
-    sessions: State.sessions
+    sessions: State.sessions,
+    objectives: State.objectives
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type:"application/json" });
   const a = document.createElement("a");
@@ -2256,8 +2327,9 @@ function importJSONFromFile(file) {
       if (data.prefs) State.prefs = { ...DEFAULT_PREFS, ...data.prefs };
       if (Array.isArray(data.routines)) State.routines = data.routines;
       if (Array.isArray(data.sessions)) State.sessions = data.sessions;
+      if (Array.isArray(data.objectives)) State.objectives = data.objectives;
       normalizeLoadedMedia();
-      savePrefs(); saveRoutines(); saveSessions();
+      savePrefs(); saveRoutines(); saveSessions(); saveObjectives();
       applyTheme();
       toast("Importado", "Datos cargados.", "ok");
       scheduleRender();
@@ -2272,7 +2344,7 @@ function importJSONFromFile(file) {
 async function resetAllData() {
   const ok = await confirmDialog({
     title: "Reiniciar TODO",
-    text: "Esto borra rutinas, sesiones y preferencias en Firebase. No hay botón de arrepentimiento.",
+    text: "Esto borra rutinas, sesiones, objetivos y preferencias en Firebase. No hay botón de arrepentimiento.",
     yesText: "Borrar todo",
     noText: "Cancelar"
   });
@@ -2285,6 +2357,7 @@ async function resetAllData() {
   Store.del(LS_KEYS.prefs);
   Store.del(LS_KEYS.routines);
   Store.del(LS_KEYS.sessions);
+  Store.del(LS_KEYS.objectives);
   Store.del(LS_KEYS.draft);
   Store.del(LS_KEYS.focusExercise);
   loadAll();
@@ -2296,6 +2369,266 @@ async function resetAllData() {
   }
   toast("Reiniciado", "Firebase quedó limpio para este usuario.", "ok");
   scheduleRender();
+}
+
+/* ---------------------------
+   GOALS & OBJECTIVES
+--------------------------- */
+function getLatestBodyWeight() {
+  for (const s of State.sessions) {
+    const m = String(s.notes || "").match(/peso:\s*(\d+(?:\.\d+)?)/i);
+    if (m) return parseFloat(m[1]);
+  }
+  return null;
+}
+
+function renderGoals() {
+  const count = $("#goalsCount");
+  const empty = $("#goalsEmpty");
+  const list = $("#goalsList");
+  const suggestedList = $("#suggestedRoutinesList");
+  const form = $("#formAddGoal");
+  const typeSelect = $("#goalType");
+  const fieldExercise = $("#fieldGoalExercise");
+  
+  if (!count || !empty || !list || !suggestedList) return;
+
+  // Render static suggested routines
+  suggestedList.innerHTML = "";
+  RECOMMENDED_ROUTINES.forEach(rec => {
+    const card = el("div", { class: "goal-item" }, [
+      el("div", { class: "goal-item__header" }, [
+        el("div", { class: "goal-title", text: rec.name }),
+        el("span", { class: "goal-badge", text: rec.tag })
+      ]),
+      el("p", { class: "muted", style: "font-size: 13px; margin: 4px 0;", text: rec.description }),
+      el("div", { class: "muted", style: "font-size: 12px; margin-bottom: 8px;", text: `Cardio: ${rec.cardioSuggest} | Duración: ${rec.targetMin} min` }),
+      el("div", { class: "row", style: "margin-top: 8px;" }, [
+        el("button", { 
+          class: "btn btn--sm", 
+          type: "button", 
+          onclick: () => {
+            const exercisesStr = rec.exercises.map(e => `${e.sets}x${e.reps} ${e.name}`).join("\n");
+            confirmDialog({
+              title: rec.name,
+              text: `Esta rutina contiene:\n${exercisesStr}\n\n¿Quieres agregarla a tus plantillas?`,
+              yesText: "Agregar",
+              noText: "Cerrar"
+            }).then(ok => {
+              if (ok) {
+                // Add to user routines
+                const r = createRoutine({
+                  name: rec.name,
+                  tag: rec.tag,
+                  targetMin: rec.targetMin,
+                  cardioSuggest: rec.cardioSuggest,
+                  exercises: rec.exercises
+                });
+                toast("Agregada", `"${r.name}" ya está en tus plantillas.`, "ok");
+              }
+            });
+          }
+        }, ["Ver Ejercicios"]),
+        el("button", {
+          class: "btn btn--primary btn--sm",
+          type: "button",
+          onclick: () => {
+            // Copy to user routines first, then prefill session
+            const r = createRoutine({
+              name: rec.name,
+              tag: rec.tag,
+              targetMin: rec.targetMin,
+              cardioSuggest: rec.cardioSuggest,
+              exercises: rec.exercises
+            });
+            location.hash = "#new-session";
+            prefillNewSessionFromRoutine(r.id);
+            toast("Iniciando rutina", r.name, "ok");
+          }
+        }, ["Iniciar entrenamiento"])
+      ])
+    ]);
+    suggestedList.appendChild(card);
+  });
+
+  // Render Objectives
+  const objList = State.objectives || [];
+  count.textContent = `${objList.length} objetivo${objList.length === 1 ? "" : "s"}`;
+  
+  if (!objList.length) {
+    empty.classList.remove("is-hidden");
+    list.classList.add("is-hidden");
+  } else {
+    empty.classList.add("is-hidden");
+    list.classList.remove("is-hidden");
+    list.innerHTML = "";
+
+    const prs = computePRs();
+    const sessions7 = getSessionsInLastDays(7);
+    const cardio7 = sessions7.reduce((acc, s) => acc + (s.cardio?.minutes ? Number(s.cardio.minutes) : 0), 0);
+    const bodyWeight = getLatestBodyWeight();
+
+    objList.forEach(g => {
+      let currentVal = 0;
+      let targetVal = parseFloat(g.target) || 0;
+      let progressPct = 0;
+      let statusText = "";
+      let typeLabel = "";
+
+      if (g.type === "sessions_weekly") {
+        currentVal = sessions7.length;
+        progressPct = targetVal > 0 ? (currentVal / targetVal) * 100 : 0;
+        statusText = `${currentVal} de ${targetVal} sesiones esta semana`;
+        typeLabel = "Constancia";
+      } else if (g.type === "cardio_weekly") {
+        currentVal = cardio7;
+        progressPct = targetVal > 0 ? (currentVal / targetVal) * 100 : 0;
+        statusText = `${Math.round(currentVal)} de ${targetVal} min esta semana`;
+        typeLabel = "Cardio";
+      } else if (g.type === "pr_weight") {
+        currentVal = prs.get(g.exerciseName) || 0;
+        progressPct = targetVal > 0 ? (currentVal / targetVal) * 100 : 0;
+        statusText = `${currentVal} de ${targetVal} ${State.prefs.unit} en ${g.exerciseName}`;
+        typeLabel = "Fuerza";
+      } else if (g.type === "body_weight") {
+        currentVal = bodyWeight || 0;
+        // Proximidad al peso objetivo (hacia arriba o abajo)
+        if (currentVal > 0) {
+          if (currentVal <= targetVal) {
+            progressPct = (currentVal / targetVal) * 100;
+          } else {
+            progressPct = (targetVal / currentVal) * 100;
+          }
+        } else {
+          progressPct = 0;
+        }
+        statusText = currentVal > 0 
+          ? `Actual: ${currentVal} ${State.prefs.unit} (Meta: ${targetVal} ${State.prefs.unit})`
+          : `Escribe 'peso: ${targetVal}' en las notas de tu sesión para registrarlo.`;
+        typeLabel = "Peso Corporal";
+      } else {
+        // custom
+        currentVal = g.completed ? 1 : 0;
+        progressPct = g.completed ? 100 : 0;
+        statusText = g.target;
+        typeLabel = "Personalizado";
+      }
+
+      progressPct = Math.min(100, Math.max(0, progressPct));
+
+      const goalCard = el("div", { class: "goal-item" }, [
+        el("div", { class: "goal-item__header" }, [
+          el("div", { class: "goal-title", text: g.type === "pr_weight" ? `Superar PR en ${g.exerciseName}` : g.type === "sessions_weekly" ? "Entrenamientos semanales" : g.type === "cardio_weekly" ? "Minutos de cardio semanales" : g.type === "body_weight" ? "Peso corporal ideal" : "Meta personalizada" }),
+          el("div", { class: "row" }, [
+            el("span", { class: "goal-badge", text: typeLabel }),
+            el("button", { 
+              class: "goal-delete-btn", 
+              type: "button",
+              onclick: async () => {
+                const ok = await confirmDialog({
+                  title: "Eliminar objetivo",
+                  text: "¿Seguro que deseas eliminar este objetivo?",
+                  yesText: "Eliminar",
+                  noText: "Cancelar"
+                });
+                if (ok) {
+                  State.objectives = State.objectives.filter(x => x.id !== g.id);
+                  saveObjectives();
+                  toast("Objetivo eliminado", "", "warn");
+                  scheduleRender();
+                }
+              } 
+            }, ["✕"])
+          ])
+        ]),
+        el("div", { class: "goal-val-info" }, [
+          el("span", { text: statusText }),
+          el("span", { text: `${Math.round(progressPct)}%` })
+        ]),
+        el("div", { class: "goal-progress" }, [
+          el("div", { class: "goal-progress__fill", style: `width: ${progressPct}%` })
+        ])
+      ]);
+
+      // If custom, allow toggle complete
+      if (g.type === "custom") {
+        const toggleBtn = el("button", {
+          class: `btn btn--sm ${g.completed ? "btn--ghost" : "btn--primary"}`,
+          style: "margin-top: 8px; align-self: flex-start;",
+          type: "button",
+          onclick: () => {
+            g.completed = !g.completed;
+            saveObjectives();
+            toast(g.completed ? "¡Objetivo completado! 🎉" : "Objetivo reactivado", "", "ok");
+            scheduleRender();
+          }
+        }, [g.completed ? "Marcar como pendiente" : "Completar meta"]);
+        goalCard.appendChild(toggleBtn);
+      }
+
+      list.appendChild(goalCard);
+    });
+  }
+
+  // Setup form logic
+  if (form && !form.dataset.bound) {
+    form.dataset.bound = "1";
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const type = $("#goalType")?.value;
+      const target = $("#goalTarget")?.value || "";
+      const exerciseName = $("#goalExerciseName")?.value || "";
+
+      if (!target) return;
+
+      const newGoal = {
+        id: uid("goal"),
+        type,
+        target,
+        exerciseName: type === "pr_weight" ? exerciseName : "",
+        completed: false,
+        createdAt: Date.now()
+      };
+
+      State.objectives.push(newGoal);
+      saveObjectives();
+      
+      // Reset form
+      if ($("#goalTarget")) $("#goalTarget").value = "";
+      if ($("#goalExerciseName")) $("#goalExerciseName").value = "";
+      
+      toast("Objetivo añadido", "¡A entrenar duro!", "ok");
+      scheduleRender();
+    });
+  }
+
+  if (typeSelect && !typeSelect.dataset.bound) {
+    typeSelect.dataset.bound = "1";
+    typeSelect.addEventListener("change", (e) => {
+      const type = e.target.value;
+      if (type === "pr_weight") {
+        fieldExercise.style.display = "";
+        $("#goalTarget").placeholder = "Ej. 150";
+        $("#goalTarget").type = "number";
+      } else if (type === "sessions_weekly") {
+        fieldExercise.style.display = "none";
+        $("#goalTarget").placeholder = "Ej. 3";
+        $("#goalTarget").type = "number";
+      } else if (type === "cardio_weekly") {
+        fieldExercise.style.display = "none";
+        $("#goalTarget").placeholder = "Ej. 60";
+        $("#goalTarget").type = "number";
+      } else if (type === "body_weight") {
+        fieldExercise.style.display = "none";
+        $("#goalTarget").placeholder = "Ej. 160";
+        $("#goalTarget").type = "number";
+      } else {
+        fieldExercise.style.display = "none";
+        $("#goalTarget").placeholder = "Ej. Hacer el pino 10s";
+        $("#goalTarget").type = "text";
+      }
+    });
+  }
 }
 
 function renderCardioSummary() {

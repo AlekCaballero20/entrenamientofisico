@@ -467,7 +467,7 @@ input, textarea, select {
     bottom: 0;
     z-index: 70;
     display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: repeat(7, minmax(0, 1fr));
     gap: 8px;
     padding: 10px 10px calc(10px + env(safe-area-inset-bottom, 0px));
     border-top: 1px solid var(--line);
@@ -501,7 +501,8 @@ input, textarea, select {
   .mobile-nav .nav__item:nth-child(3) .nav__icon::before,
   .mobile-nav .nav__item:nth-child(4) .nav__icon::before,
   .mobile-nav .nav__item:nth-child(5) .nav__icon::before,
-  .mobile-nav .nav__item:nth-child(6) .nav__icon::before {
+  .mobile-nav .nav__item:nth-child(6) .nav__icon::before,
+  .mobile-nav .nav__item:nth-child(7) .nav__icon::before {
     position: absolute;
     inset: 0;
     display: grid;
@@ -515,7 +516,8 @@ input, textarea, select {
   .mobile-nav .nav__item:nth-child(3) .nav__icon::before { content: "S"; }
   .mobile-nav .nav__item:nth-child(4) .nav__icon::before { content: "H"; }
   .mobile-nav .nav__item:nth-child(5) .nav__icon::before { content: "P"; }
-  .mobile-nav .nav__item:nth-child(6) .nav__icon::before { content: "A"; }
+  .mobile-nav .nav__item:nth-child(6) .nav__icon::before { content: "O"; }
+  .mobile-nav .nav__item:nth-child(7) .nav__icon::before { content: "A"; }
 
   .footer {
     font-size: 11px;
@@ -1670,4 +1672,84 @@ textarea.input { resize: vertical; min-height: 96px; }
   background: rgba(255,91,112,.20);
   transform: scale(1.08);
 }
+
+/* ---------------------------
+   GOALS & OBJECTIVES STYLES
+--------------------------- */
+.goal-item {
+  padding: 16px;
+  border-radius: var(--radius);
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  position: relative;
+  transition: transform var(--t) var(--ease), box-shadow var(--t) var(--ease);
+}
+
+.goal-item:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-1);
+}
+
+.goal-item__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.goal-title {
+  font-weight: 800;
+  font-size: 14px;
+}
+
+.goal-badge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--chip);
+  color: var(--accent);
+}
+
+.goal-progress {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+  position: relative;
+}
+
+.goal-progress__fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  border-radius: 999px;
+  transition: width var(--t-slow) var(--ease);
+}
+
+.goal-val-info {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.goal-delete-btn {
+  background: none;
+  border: none;
+  color: var(--bad);
+  font-size: 14px;
+  padding: 4px 8px;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: background var(--t-fast);
+}
+
+.goal-delete-btn:hover {
+  background: rgba(255, 91, 112, 0.12);
+}
+
 
