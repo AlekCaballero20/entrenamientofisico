@@ -32,11 +32,14 @@ function lsKeys(uid) {
   const prefix = uid ? `gymos.u.${uid}` : "gymos";
   return {
     routines: `${prefix}.routines.v1`,
+    programs: `${prefix}.programs.v1`,
+    activeProgram: `${prefix}.activeProgram.v1`,
     sessions: `${prefix}.sessions.v1`,
     prefs:    `${prefix}.prefs.v1`,
     draft:    `${prefix}.draft.session.v1`,
     focusExercise: `${prefix}.focus.exercise.v1`,
-    objectives: `${prefix}.objectives.v1`
+    objectives: `${prefix}.objectives.v1`,
+    seededDefaults: `${prefix}.seededDefaults.v1`
   };
 }
 
@@ -252,6 +255,8 @@ function appStatePayload() {
     savedAt: new Date().toISOString(),
     prefs: State.prefs,
     routines: State.routines,
+    programs: State.programs,
+    activeProgramId: State.activeProgramId,
     sessions: State.sessions,
     objectives: State.objectives
   };
@@ -290,13 +295,18 @@ function applyRemoteState(payload) {
     if (!State.prefs.unit || !["lbs","kg"].includes(State.prefs.unit)) State.prefs.unit = DEFAULT_PREFS.unit;
 
     if (Array.isArray(payload.routines)) State.routines = payload.routines;
+    if (Array.isArray(payload.programs)) State.programs = payload.programs;
+    if (typeof payload.activeProgramId !== "undefined") State.activeProgramId = payload.activeProgramId;
     if (Array.isArray(payload.sessions)) State.sessions = payload.sessions;
     if (Array.isArray(payload.objectives)) State.objectives = payload.objectives;
     else State.objectives = [];
     normalizeLoadedMedia();
+    ensurePrograms();
 
     Store.set(LS_KEYS.prefs, State.prefs);
     Store.set(LS_KEYS.routines, State.routines);
+    Store.set(LS_KEYS.programs, State.programs);
+    Store.set(LS_KEYS.activeProgram, State.activeProgramId);
     Store.set(LS_KEYS.sessions, State.sessions);
     Store.set(LS_KEYS.objectives, State.objectives);
     applyTheme();
@@ -393,6 +403,8 @@ async function initFirebaseSync() {
   const sync = window.FirebaseSync;
   if (!sync || !sync.ready) {
     updateFirebaseStatus("Firebase", "Firebase no está disponible. No se guardarán cambios hasta conectar.", "warn");
+    // Sin nube: al menos mostrar las rutinas predeterminadas localmente.
+    if (maybeSeedDefaultRoutines()) scheduleRender();
     return;
   }
 
@@ -414,6 +426,10 @@ async function initFirebaseSync() {
     }
 
     firebaseBootstrapped = true;
+
+    // Primera vez sin datos en ningún lado → cargar rutinas predeterminadas.
+    // (No hace nada si ya hay rutinas o si ya se sembró antes.)
+    if (maybeSeedDefaultRoutines()) scheduleRender();
   } catch (err) {
     console.error("[Firebase] init error", err);
     firebaseBootstrapped = false;
@@ -447,6 +463,8 @@ async function uploadExerciseImageForRow(row, file, imageInput, nameInput) {
 const State = {
   prefs: { ...DEFAULT_PREFS },
   routines: [],
+  programs: [],
+  activeProgramId: null,
   sessions: [],
   objectives: [],
   selectedRoutineId: null,
@@ -654,9 +672,12 @@ function loadAll() {
   if (!["light","system","dark"].includes(State.prefs.theme)) State.prefs.theme = DEFAULT_PREFS.theme;
 
   State.routines = Store.get(LS_KEYS.routines, []);
+  State.programs = Store.get(LS_KEYS.programs, []);
+  State.activeProgramId = Store.get(LS_KEYS.activeProgram, null);
   State.sessions = Store.get(LS_KEYS.sessions, []);
   State.objectives = Store.get(LS_KEYS.objectives, []);
   normalizeLoadedMedia();
+  ensurePrograms();
   State.selectedRoutineId = null;
   State.cardioDraft = null;
   State.sessionDraft = Store.get(LS_KEYS.draft, null);
@@ -664,6 +685,11 @@ function loadAll() {
 
 function savePrefs() { Store.set(LS_KEYS.prefs, State.prefs); queueFirebaseSave(); }
 function saveRoutines() { Store.set(LS_KEYS.routines, State.routines); queueFirebaseSave(); }
+function savePrograms() {
+  Store.set(LS_KEYS.programs, State.programs);
+  Store.set(LS_KEYS.activeProgram, State.activeProgramId);
+  queueFirebaseSave();
+}
 function saveSessions() { Store.set(LS_KEYS.sessions, State.sessions); queueFirebaseSave(); }
 function saveObjectives() { Store.set(LS_KEYS.objectives, State.objectives); queueFirebaseSave(); }
 
@@ -870,8 +896,23 @@ function bindShellActionsOnce() {
     location.hash = "#history";
   });
   $("#btnHelp")?.addEventListener("click", () => {
-    toast("Ayuda rápida", "Crea una rutina, carga ejercicios y guarda tu sesión.", "ok");
+    openModal("#modalHelp");
   });
+
+  // Contraer / expandir el sidebar (PC). Recuerda la preferencia.
+  const sidebar = document.querySelector(".sidebar");
+  const sidebarToggle = $("#btnSidebarToggle");
+  if (sidebar && sidebarToggle && !sidebarToggle.dataset.bound) {
+    sidebarToggle.dataset.bound = "1";
+    if (localStorage.getItem("gymos.sidebarCollapsed") === "1") {
+      sidebar.classList.add("is-collapsed");
+    }
+    sidebarToggle.addEventListener("click", () => {
+      const collapsed = sidebar.classList.toggle("is-collapsed");
+      localStorage.setItem("gymos.sidebarCollapsed", collapsed ? "1" : "0");
+      sidebarToggle.setAttribute("aria-expanded", String(!collapsed));
+    });
+  }
 
   const importInput = $("#fileImport");
   if (importInput && !importInput.dataset.bound) {
@@ -904,12 +945,141 @@ function bindShellActionsOnce() {
 }
 
 /* ---------------------------
+   PROGRAMAS (agrupan días/rutinas)
+   Una "Rutina" del usuario = un Programa con varios días.
+   Cada día (State.routines) pertenece a un solo programa vía programId.
+--------------------------- */
+
+// Garantiza que siempre exista al menos un programa, que toda rutina tenga
+// programId, y que activeProgramId apunte a un programa válido.
+// Migración suave: la primera vez agrupa todos los días existentes en
+// "Entrenamiento Inicial" sin perder nada.
+function ensurePrograms() {
+  if (!Array.isArray(State.programs)) State.programs = [];
+  if (!Array.isArray(State.routines)) State.routines = [];
+
+  if (State.programs.length === 0) {
+    const now = Date.now();
+    const p = {
+      id: uid("program"),
+      name: "Entrenamiento Inicial",
+      createdAt: now,
+      updatedAt: now
+    };
+    State.programs.push(p);
+    State.activeProgramId = p.id;
+    // Todos los días actuales entran al programa por defecto.
+    State.routines.forEach(r => { if (!r.programId) r.programId = p.id; });
+  }
+
+  // activeProgramId válido
+  if (!State.programs.some(p => p.id === State.activeProgramId)) {
+    State.activeProgramId = State.programs[0]?.id || null;
+  }
+
+  // Días huérfanos → al programa activo
+  const fallbackId = State.activeProgramId || State.programs[0]?.id || null;
+  State.routines.forEach(r => {
+    if (!r.programId || !State.programs.some(p => p.id === r.programId)) {
+      r.programId = fallbackId;
+    }
+  });
+}
+
+function activeProgram() {
+  return State.programs.find(p => p.id === State.activeProgramId) || null;
+}
+
+// Días que pertenecen al programa activo.
+function routinesInActiveProgram() {
+  return State.routines.filter(r => r.programId === State.activeProgramId);
+}
+
+function setActiveProgram(id) {
+  if (!State.programs.some(p => p.id === id)) return false;
+  State.activeProgramId = id;
+  State.selectedRoutineId = null;
+  savePrograms();
+  return true;
+}
+
+function createProgram(name) {
+  const now = Date.now();
+  const p = {
+    id: uid("program"),
+    name: String(name || "Nuevo programa").trim() || "Nuevo programa",
+    createdAt: now,
+    updatedAt: now
+  };
+  State.programs.push(p);
+  State.activeProgramId = p.id;
+  State.selectedRoutineId = null;
+  savePrograms();
+  return p;
+}
+
+function renameProgram(id, name) {
+  const p = State.programs.find(x => x.id === id);
+  if (!p) return null;
+  p.name = String(name || "").trim() || p.name;
+  p.updatedAt = Date.now();
+  savePrograms();
+  return p;
+}
+
+// Duplica un programa con todos sus días (ejercicios incluidos), con ids nuevos.
+function duplicateProgram(id) {
+  const p = State.programs.find(x => x.id === id);
+  if (!p) return null;
+  const now = Date.now();
+  const copy = { id: uid("program"), name: `${p.name} (copia)`, createdAt: now, updatedAt: now };
+  State.programs.push(copy);
+
+  State.routines
+    .filter(r => r.programId === id)
+    .forEach(r => {
+      State.routines.push({
+        ...r,
+        id: uid("routine"),
+        programId: copy.id,
+        exercises: (r.exercises || []).map(ex => ({ ...ex })),
+        createdAt: now,
+        updatedAt: now
+      });
+    });
+
+  State.activeProgramId = copy.id;
+  State.selectedRoutineId = null;
+  saveRoutines();
+  savePrograms();
+  return copy;
+}
+
+// Elimina un programa y todos sus días. Las sesiones (historial) se conservan.
+function deleteProgram(id) {
+  const idx = State.programs.findIndex(p => p.id === id);
+  if (idx < 0) return false;
+  if (State.programs.length <= 1) return false; // siempre debe quedar uno
+
+  State.routines = State.routines.filter(r => r.programId !== id);
+  State.programs.splice(idx, 1);
+  if (State.activeProgramId === id) {
+    State.activeProgramId = State.programs[0]?.id || null;
+  }
+  State.selectedRoutineId = null;
+  saveRoutines();
+  savePrograms();
+  return true;
+}
+
+/* ---------------------------
    CRUD: ROUTINES
 --------------------------- */
 function createRoutine(data) {
   const now = Date.now();
   const r = {
     id: uid("routine"),
+    programId: State.activeProgramId,
     name: String(data.name || "Nueva rutina").trim(),
     tag: String(data.tag || "").trim(),
     targetMin: Number(data.targetMin || 0),
@@ -1205,13 +1375,14 @@ function renderNextRoutineSuggestion() {
   const list = $("#nextRoutineList");
   if (!empty || !box || !list) return;
 
-  if (!State.routines.length) {
+  const programRoutines = routinesInActiveProgram();
+  if (!programRoutines.length) {
     box.textContent = "Cardio: ninguno";
     return;
   }
 
   const last3 = State.sessions.slice(0,3).map(s => s.routineId).filter(Boolean);
-  const pick = State.routines.find(r => !last3.includes(r.id)) || State.routines[0];
+  const pick = programRoutines.find(r => !last3.includes(r.id)) || programRoutines[0];
 
   
 
@@ -1316,16 +1487,91 @@ function renderFocusExerciseBox() {
 --------------------------- */
 const rerenderRoutinesDebounced = debounce(() => scheduleRender(), 120);
 
+function renderProgramBar() {
+  const sel = $("#programSelect");
+  if (sel) {
+    sel.innerHTML = "";
+    State.programs.forEach(p => {
+      const opt = document.createElement("option");
+      opt.value = p.id;
+      const count = State.routines.filter(r => r.programId === p.id).length;
+      opt.textContent = `${p.name} (${count})`;
+      sel.appendChild(opt);
+    });
+    sel.value = State.activeProgramId || "";
+
+    if (!sel.dataset.bound) {
+      sel.dataset.bound = "1";
+      sel.addEventListener("change", () => {
+        setActiveProgram(sel.value);
+        scheduleRender();
+      });
+    }
+  }
+
+  const bind = (id, fn) => { const b = $(id); if (b) b.onclick = fn; };
+
+  bind("#btnNewProgram", () => {
+    const name = (window.prompt("Nombre del nuevo programa:", "") || "").trim();
+    if (!name) return;
+    const p = createProgram(name);
+    toast("Programa creado", p.name, "ok");
+    scheduleRender();
+  });
+
+  bind("#btnRenameProgram", () => {
+    const p = activeProgram();
+    if (!p) return;
+    const name = (window.prompt("Nuevo nombre del programa:", p.name) || "").trim();
+    if (!name || name === p.name) return;
+    renameProgram(p.id, name);
+    toast("Programa renombrado", name, "ok");
+    scheduleRender();
+  });
+
+  bind("#btnDuplicateProgram", () => {
+    const p = activeProgram();
+    if (!p) return;
+    const copy = duplicateProgram(p.id);
+    if (!copy) return;
+    toast("Programa duplicado", copy.name, "ok");
+    scheduleRender();
+  });
+
+  bind("#btnDeleteProgram", async () => {
+    const p = activeProgram();
+    if (!p) return;
+    if (State.programs.length <= 1) {
+      toast("No se puede", "Debe existir al menos un programa.", "warn");
+      return;
+    }
+    const count = State.routines.filter(r => r.programId === p.id).length;
+    const ok = await confirmDialog({
+      title: "Eliminar programa",
+      text: `Eliminar "${p.name}" y sus ${count} día(s)? El historial de sesiones se conserva.`,
+      yesText: "Eliminar",
+      noText: "Cancelar"
+    });
+    if (!ok) return;
+    deleteProgram(p.id);
+    toast("Programa eliminado", p.name, "warn");
+    scheduleRender();
+  });
+}
+
 function renderRoutines() {
   const grid = $("#routinesGrid");
   const empty = $("#routinesEmpty");
   const search = $("#routineSearch");
   if (!grid || !empty) return;
 
-  $("#routinesCount") && ($("#routinesCount").textContent = `${State.routines.length}`);
+  renderProgramBar();
+
+  const inProgram = routinesInActiveProgram();
+  $("#routinesCount") && ($("#routinesCount").textContent = `${inProgram.length}`);
 
   const q = (search?.value || "").toLowerCase().trim();
-  const filtered = State.routines.filter(r => {
+  const filtered = inProgram.filter(r => {
     if (!q) return true;
     const hay = `${r.name} ${r.tag} ${(r.exercises||[]).map(e=>e.name).join(" ")}`.toLowerCase();
     return hay.includes(q);
@@ -1365,7 +1611,6 @@ function renderRoutines() {
 
   // Bind buttons each render is fine (idempotent by overwrite)
   $("#btnNewRoutine") && ($("#btnNewRoutine").onclick = () => openRoutineModal({ mode:"new" }));
-  $("#btnSeedRoutines") && ($("#btnSeedRoutines").onclick = () => seedRoutines());
 
   if (search && !search.dataset.bound) {
     search.dataset.bound = "1";
@@ -1577,13 +1822,19 @@ function renderEditorRow(ex) {
     }
   };
 
-  row.appendChild(name);
-  row.appendChild(sets);
-  row.appendChild(reps);
-  row.appendChild(weight);
-  row.appendChild(notes);
-  row.appendChild(imageUrl);
-  row.appendChild(videoUrl);
+  const cell = (labelText, inputEl) =>
+    el("label", { class:"editor-cell" }, [
+      el("span", { class:"editor-cell__label", text: labelText }),
+      inputEl
+    ]);
+
+  row.appendChild(cell("Ejercicio", name));
+  row.appendChild(cell("Series", sets));
+  row.appendChild(cell("Reps", reps));
+  row.appendChild(cell(`Peso (${ex.unit || State.prefs.unit})`, weight));
+  row.appendChild(cell("Notas", notes));
+  row.appendChild(cell("URL imagen", imageUrl));
+  row.appendChild(cell("Link video", videoUrl));
   row.appendChild(uploadBtn);
   row.appendChild(delBtn);
   row.appendChild(fileInput);
@@ -1631,15 +1882,28 @@ function collectRoutineModalData() {
 /* ---------------------------
    SEED ROUTINES
 --------------------------- */
-function seedRoutines() {
-  if (State.routines.length) {
-    toast("Ya tienes rutinas", "Si quieres la base histórica, reinicia o importa.", "warn");
-    return;
+// Siembra rutinas predeterminadas UNA sola vez por cuenta.
+// - Nunca sobreescribe rutinas existentes (locales o de la nube).
+// - No vuelve a aparecer si el usuario las borra (se marca con un flag).
+// - Lo que el usuario cree/edite/borre se respeta siempre.
+function maybeSeedDefaultRoutines() {
+  // Ya se sembró antes para esta cuenta → no tocar nada.
+  if (Store.get(LS_KEYS.seededDefaults, false)) return false;
+
+  // Ya hay rutinas (del usuario o sincronizadas) → marcar y respetar.
+  if (State.routines.length > 0) {
+    Store.set(LS_KEYS.seededDefaults, true);
+    return false;
   }
+
+  // Cuenta nueva y vacía → cargar las rutinas predeterminadas.
   State.routines = buildSeedRoutines(State.prefs.unit);
-  saveRoutines();
-  toast("Base cargada", "Rutinas Día 1–6 + Cardio.", "ok");
-  scheduleRender();
+  ensurePrograms(); // asigna los días sembrados al programa por defecto
+  State.routines.forEach(r => { if (!r.programId) r.programId = State.activeProgramId; });
+  Store.set(LS_KEYS.seededDefaults, true);
+  saveRoutines(); // persiste local + sincroniza a la nube
+  savePrograms();
+  return true;
 }
 
 /* ---------------------------
@@ -1650,7 +1914,7 @@ function renderNewSession() {
   if (sel) {
     const prev = sel.value;
     sel.innerHTML = `<option value="">Selecciona una rutina…</option>`;
-    State.routines.forEach(r => {
+    routinesInActiveProgram().forEach(r => {
       const opt = document.createElement("option");
       opt.value = r.id;
       opt.textContent = r.name;

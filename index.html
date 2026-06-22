@@ -408,6 +408,19 @@
 
         <!-- ROUTE: ROUTINES -->
         <section id="view-routines" class="view" data-view="routines">
+          <div class="program-bar">
+            <div class="program-bar__left">
+              <label class="program-bar__label" for="programSelect">Programa</label>
+              <select id="programSelect" class="input program-bar__select" aria-label="Programa activo"></select>
+            </div>
+            <div class="program-bar__actions">
+              <button id="btnNewProgram" class="btn btn--ghost" type="button" title="Crear programa">➕ Nuevo</button>
+              <button id="btnRenameProgram" class="btn btn--ghost" type="button" title="Renombrar programa">✏️ Renombrar</button>
+              <button id="btnDuplicateProgram" class="btn btn--ghost" type="button" title="Duplicar programa con sus días">⧉ Duplicar</button>
+              <button id="btnDeleteProgram" class="btn btn--ghost" type="button" title="Eliminar programa">🗑️ Eliminar</button>
+            </div>
+          </div>
+
           <div class="toolbar">
             <div class="toolbar__left">
               <div class="search">
@@ -419,10 +432,6 @@
               <button id="btnNewRoutine" class="btn btn--primary" type="button">
                 <span class="icon" aria-hidden="true">➕</span>
                 Nueva rutina
-              </button>
-              <button id="btnSeedRoutines" class="btn" type="button" title="Cargar tus rutinas históricas (seed)">
-                <span class="icon" aria-hidden="true">🌱</span>
-                Cargar base
               </button>
             </div>
           </div>
@@ -1028,6 +1037,67 @@
         <div class="modal__foot">
           <button class="btn btn--ghost" type="button" data-close>Cancelar</button>
           <button id="btnSaveRoutine" class="btn btn--primary" type="button">Guardar rutina</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: Ayuda -->
+    <div id="modalHelp" class="modal" role="dialog" aria-modal="true" aria-labelledby="modalHelpTitle" hidden>
+      <div class="modal__backdrop" data-close></div>
+      <div class="modal__panel" role="document">
+        <div class="modal__head">
+          <h3 id="modalHelpTitle">❔ Ayuda — Cómo usar GymOS</h3>
+          <button class="icon-btn" type="button" data-close aria-label="Cerrar">
+            <span class="icon" aria-hidden="true">✕</span>
+          </button>
+        </div>
+
+        <div class="modal__body">
+          <div class="help">
+            <div class="help__item">
+              <div class="help__icon" aria-hidden="true">🗂️</div>
+              <div>
+                <div class="help__title">1. Crea una rutina</div>
+                <div class="help__text muted">En <strong>Rutinas</strong> arma tu día de entrenamiento: nombre, ejercicios y series/reps/peso sugeridos.</div>
+              </div>
+            </div>
+
+            <div class="help__item">
+              <div class="help__icon" aria-hidden="true">➕</div>
+              <div>
+                <div class="help__title">2. Registra una sesión</div>
+                <div class="help__text muted">En <strong>Nueva sesión</strong> (o <em>Iniciar sesión rápida</em>) anota lo que hiciste de verdad: pesos, repeticiones y cardio.</div>
+              </div>
+            </div>
+
+            <div class="help__item">
+              <div class="help__icon" aria-hidden="true">📈</div>
+              <div>
+                <div class="help__title">3. Mira tu progreso</div>
+                <div class="help__text muted">El <strong>Dashboard</strong> resume tus últimos 7 días y tu constancia. En <strong>Progreso</strong> ves tendencias por ejercicio.</div>
+              </div>
+            </div>
+
+            <div class="help__item">
+              <div class="help__icon" aria-hidden="true">🎯</div>
+              <div>
+                <div class="help__title">4. Define objetivos y foco</div>
+                <div class="help__text muted">En <strong>Objetivos</strong> fijas metas y eliges tu <em>ejercicio foco</em> para seguirlo de cerca.</div>
+              </div>
+            </div>
+
+            <div class="help__item">
+              <div class="help__icon" aria-hidden="true">☁️</div>
+              <div>
+                <div class="help__title">Tus datos están a salvo</div>
+                <div class="help__text muted">Todo se guarda en Firebase y se sincroniza con tu cuenta. Puedes <strong>Exportar</strong> o <strong>Importar</strong> en JSON desde el menú lateral.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal__foot">
+          <button class="btn btn--primary" type="button" data-close>Entendido</button>
         </div>
       </div>
     </div>
