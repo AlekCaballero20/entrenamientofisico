@@ -555,13 +555,16 @@
                   </label>
                 </div>
 
-                <div class="split">
-                  <button id="btnAddCardio" class="btn" type="button">
-                    <span class="icon" aria-hidden="true">❤️</span>
-                    Agregar cardio
-                  </button>
-
-                  <div class="muted" id="cardioSummary">Cardio: ninguno</div>
+                <div class="cardio-section" style="margin-top: 15px; margin-bottom: 15px; padding: 12px; border-radius: 16px; border: 1px solid var(--line); background: rgba(255,255,255,.01); width: 100%;">
+                  <div class="row row--between" style="align-items: center; margin-bottom: 8px; width: 100%;">
+                    <span class="field__label" style="margin-bottom: 0; font-weight: 600;">Cardios Registrados</span>
+                    <button id="btnAddCardio" class="btn btn--ghost btn--sm" type="button">
+                      <span class="icon" aria-hidden="true">❤️</span> Agregar cardio
+                    </button>
+                  </div>
+                  <div id="sessionCardioList" class="session-cardio-list row" style="gap: 12px; flex-wrap: wrap; width: 100%;">
+                    <div class="muted" id="cardioSummary" style="font-size: 13px; padding: 4px 0;">Cardio: ninguno</div>
+                  </div>
                 </div>
 
                 <label class="field">
@@ -581,11 +584,18 @@
 
             <article class="card">
               <div class="card__head">
-                <h2>Ejercicios</h2>
-                <div class="muted">Registra lo que hiciste hoy</div>
+                <div>
+                  <h2>Entrenamiento en curso</h2>
+                  <div class="muted">Completa cada ejercicio y luego guarda la sesión.</div>
+                </div>
               </div>
 
               <div class="card__body">
+                <div class="session-workflow">
+                  <div><span>1</span><strong>Carga la rutina</strong></div>
+                  <div><span>2</span><strong>Marca series o inicia el tiempo</strong></div>
+                  <div><span>3</span><strong>Guarda al terminar</strong></div>
+                </div>
                 <div class="empty" id="sessionExercisesEmpty">
                   <div class="empty__icon" aria-hidden="true">🧾</div>
                   <div class="empty__title">Aún no hay ejercicios</div>
@@ -598,7 +608,7 @@
               <div class="card__foot">
                 <button id="btnSaveSession" class="btn btn--primary" type="button">
                   <span class="icon" aria-hidden="true">💾</span>
-                  Guardar sesión
+                  Terminé · Guardar sesión
                 </button>
                 <button id="btnPreviewSession" class="btn" type="button">Vista previa</button>
               </div>
@@ -1021,8 +1031,16 @@
             <input id="routineCardioSuggest" class="input" type="text" placeholder="Ej. 5–10 min + Elíptica" />
           </label>
 
-          <div class="subhead">Ejercicios</div>
-          <div class="muted">Agrega ejercicios con series/reps/peso sugerido. Luego en la sesión ajustas lo real.</div>
+          <div class="routine-editor-intro">
+            <div>
+              <div class="subhead">Ejercicios de la rutina</div>
+              <div class="muted">Define las series y, si el ejercicio se mide por tiempo, configura aquí su cronómetro.</div>
+            </div>
+            <div class="timer-help">
+              <span class="timer-help__icon" aria-hidden="true">⏱</span>
+              <div><strong>¿Cómo funciona?</strong><span>Para una plancha, por ejemplo, escribe 20 segundos de ejercicio y 30 segundos de descanso.</span></div>
+            </div>
+          </div>
 
           <div id="routineExercisesEditor" class="editor">
             <div class="editor__empty muted">Aquí aparecerán los ejercicios.</div>
@@ -1146,6 +1164,17 @@
             <span class="field__label">Notas</span>
             <input id="cardioNotes" class="input" type="text" placeholder="Ej. intervalos, pendiente, resistencia…" />
           </label>
+
+          <label class="field">
+            <span class="field__label">URL Imagen del Cardio</span>
+            <input id="cardioImageUrl" class="input" type="url" placeholder="Ej. https://url-imagen.jpg" />
+          </label>
+          <div class="row" style="margin-top: -6px;">
+            <input id="cardioImageFile" type="file" accept="image/*" hidden />
+            <button id="btnUploadCardioImage" class="btn btn--ghost btn--sm" type="button" style="width: 100%;">
+              <span class="icon" aria-hidden="true">🖼️</span> Subir imagen a Firebase
+            </button>
+          </div>
         </div>
 
         <div class="modal__foot">
@@ -1209,6 +1238,28 @@
         </div>
       </div>
     </aside>
+
+    <!-- WIDGET: Temporizador Flotante -->
+    <div id="floating-timer" class="floating-timer is-hidden">
+      <div class="floating-timer__content">
+        <div class="floating-timer__header">
+          <span id="timer-title" class="floating-timer__title">Ejercicio</span>
+          <button id="btn-close-timer" class="icon-btn" type="button" aria-label="Cerrar">✕</button>
+        </div>
+        <div class="floating-timer__body">
+          <div id="timer-status" class="floating-timer__status">EJERCICIO</div>
+          <div id="timer-display" class="floating-timer__clock">00:00</div>
+          <div class="floating-timer__progress">
+            <div id="timer-progress-fill" class="floating-timer__fill"></div>
+          </div>
+        </div>
+        <div class="floating-timer__actions">
+          <button id="btn-timer-play" class="btn btn--primary btn--sm" type="button">⏸️ Pausa</button>
+          <button id="btn-timer-skip" class="btn btn--ghost btn--sm" type="button">⏩ Saltar</button>
+          <button id="btn-timer-reset" class="btn btn--ghost btn--sm" type="button">🔄 Reiniciar</button>
+        </div>
+      </div>
+    </div>
 
     <!-- TOASTS -->
     <div id="toasts" class="toasts" aria-live="polite" aria-atomic="true"></div>
@@ -1277,6 +1328,7 @@
             <span class="field__label">Notas</span>
             <input class="input input--sm" type="text" placeholder="Ej. buena técnica, fallo, etc." />
           </label>
+          <div class="exercise-card__timer-box" style="margin-top: 10px;"></div>
         </div>
       </article>
     </template>

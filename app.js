@@ -24,7 +24,7 @@
 /* ---------------------------
    CONSTANTS / KEYS
 --------------------------- */
-const APP_VERSION = "0.3.0-firebase";
+const APP_VERSION = "0.4.0-cardio-timer";
 
 // Cache interna por usuario: no es un modo local de trabajo, solo evita perder
 // estado temporal mientras Firestore termina de responder.
@@ -235,7 +235,14 @@ function withExerciseMedia(ex) {
   const out = { ...(ex || {}) };
   out.imageUrl = cleanMediaUrl(out.imageUrl || out.image || out.img || "");
   out.videoUrl = cleanMediaUrl(out.videoUrl || out.video || out.videoLink || "");
+  out.duration = Math.max(0, Number(out.duration || 0));
+  out.rest = Math.max(0, Number(out.rest || 0));
   return out;
+}
+
+function sessionCardios(session) {
+  if (Array.isArray(session?.cardios)) return session.cardios.filter(Boolean);
+  return session?.cardio ? [session.cardio] : [];
 }
 
 function normalizeLoadedMedia() {
@@ -470,6 +477,8 @@ const State = {
   selectedRoutineId: null,
   selectedExerciseName: null,
   cardioDraft: null,
+  cardioListDraft: [],
+  cardioEditIndex: -1,
   sessionDraft: null,
   route: "dashboard"
 };
@@ -1092,7 +1101,9 @@ function createRoutine(data) {
       unit: x.unit || State.prefs.unit,
       notes: String(x.notes || "").trim(),
       imageUrl: cleanMediaUrl(x.imageUrl || x.image || ""),
-      videoUrl: cleanMediaUrl(x.videoUrl || x.video || "")
+      videoUrl: cleanMediaUrl(x.videoUrl || x.video || ""),
+      duration: Math.max(0, Number(x.duration || 0)),
+      rest: Math.max(0, Number(x.rest || 0))
     })) : [],
     createdAt: now,
     updatedAt: now
@@ -1150,6 +1161,7 @@ function createSession(session) {
     rpe: session.rpe != null && session.rpe !== "" ? Number(session.rpe) : null,
     notes: String(session.notes || ""),
     cardio: session.cardio || null,
+    cardios: sessionCardios(session).map(c => ({ ...c })),
     exercises: Array.isArray(session.exercises) ? session.exercises.map(ex => ({
       name: String(ex.name || "").trim(),
       sets: Number(ex.sets || 0),
@@ -1158,7 +1170,9 @@ function createSession(session) {
       unit: ex.unit || session.unit || State.prefs.unit,
       notes: String(ex.notes || "").trim(),
       imageUrl: cleanMediaUrl(ex.imageUrl || ex.image || ""),
-      videoUrl: cleanMediaUrl(ex.videoUrl || ex.video || "")
+      videoUrl: cleanMediaUrl(ex.videoUrl || ex.video || ""),
+      duration: Math.max(0, Number(ex.duration || 0)),
+      rest: Math.max(0, Number(ex.rest || 0))
     })) : [],
     createdAt: Date.now(),
     updatedAt: Date.now()
@@ -1317,7 +1331,7 @@ function renderAll() {
 --------------------------- */
 function renderDashboard() {
   const s7 = getSessionsInLastDays(7);
-  const cardio7 = s7.reduce((sum, s) => sum + (s.cardio?.minutes ? Number(s.cardio.minutes) : 0), 0);
+  const cardio7 = s7.reduce((sum, s) => sum + sessionCardios(s).reduce((n,c) => n + Number(c.minutes || 0), 0), 0);
   const volume7 = s7.reduce((sum, s) => sum + calcVolumeForSession(s), 0);
 
   $("#kpiSessions7") && ($("#kpiSessions7").textContent = String(s7.length));
@@ -1789,6 +1803,8 @@ function renderEditorRow(ex) {
   const sets = el("input", { class:"input input--sm", type:"number", min:"0", step:"1", value: ex.sets ?? 0, placeholder:"Sets", "data-field":"sets" });
   const reps = el("input", { class:"input input--sm", type:"text", value: ex.reps || "", placeholder:"Reps", "data-field":"reps" });
   const weight = el("input", { class:"input input--sm", type:"number", min:"0", step:"0.5", value: ex.weight ?? 0, placeholder:"Peso", "data-field":"weight" });
+  const duration = el("input", { class:"input input--sm", type:"number", min:"0", step:"1", value: ex.duration ?? 0, placeholder:"Seg.", "data-field":"duration" });
+  const rest = el("input", { class:"input input--sm", type:"number", min:"0", step:"1", value: ex.rest ?? 0, placeholder:"Seg.", "data-field":"rest" });
   const notes = el("input", { class:"input input--sm", type:"text", value: ex.notes || "", placeholder:"Notas", "data-field":"notes" });
   const imageUrl = el("input", { class:"input input--sm", type:"url", value: cleanMediaUrl(ex.imageUrl || ""), placeholder:"URL imagen", "data-field":"imageUrl" });
   const videoUrl = el("input", { class:"input input--sm", type:"url", value: cleanMediaUrl(ex.videoUrl || ""), placeholder:"Link video", "data-field":"videoUrl" });
@@ -1828,15 +1844,43 @@ function renderEditorRow(ex) {
       inputEl
     ]);
 
-  row.appendChild(cell("Ejercicio", name));
-  row.appendChild(cell("Series", sets));
-  row.appendChild(cell("Reps", reps));
-  row.appendChild(cell(`Peso (${ex.unit || State.prefs.unit})`, weight));
-  row.appendChild(cell("Notas", notes));
-  row.appendChild(cell("URL imagen", imageUrl));
-  row.appendChild(cell("Link video", videoUrl));
-  row.appendChild(uploadBtn);
-  row.appendChild(delBtn);
+  const title = el("div", { class:"editor-row__title" }, [
+    el("span", { class:"editor-row__number", text:"Ejercicio" }),
+    el("span", { class:"editor-row__summary", text: ex.name || "Nuevo ejercicio" })
+  ]);
+  name.addEventListener("input", () => {
+    title.querySelector(".editor-row__summary").textContent = name.value || "Nuevo ejercicio";
+  });
+  const basics = el("div", { class:"editor-group editor-group--basics" }, [
+    cell("Nombre del ejercicio", name),
+    cell("Series", sets),
+    cell("Repeticiones", reps),
+    cell(`Peso (${ex.unit || State.prefs.unit})`, weight),
+    cell("Indicaciones o técnica", notes)
+  ]);
+  const timing = el("div", { class:"editor-group editor-group--timing" }, [
+    el("div", { class:"editor-group__intro" }, [
+      el("span", { class:"editor-group__icon", text:"⏱", "aria-hidden":"true" }),
+      el("div", {}, [
+        el("strong", { text:"Temporizador" }),
+        el("span", { text:"Para ejercicios medidos en segundos. Déjalo en 0 si se hace por repeticiones." })
+      ])
+    ]),
+    cell("Duración del ejercicio (segundos)", duration),
+    cell("Descanso después (segundos)", rest)
+  ]);
+  const media = el("details", { class:"editor-group editor-group--media" }, [
+    el("summary", { text:"Imagen o video (opcional)" }),
+    el("div", { class:"editor-media-fields" }, [
+      cell("URL de imagen", imageUrl),
+      cell("Enlace de video", videoUrl),
+      uploadBtn
+    ])
+  ]);
+  row.appendChild(el("div", { class:"editor-row__head" }, [title, delBtn]));
+  row.appendChild(basics);
+  row.appendChild(timing);
+  row.appendChild(media);
   row.appendChild(fileInput);
 
   return row;
@@ -1853,6 +1897,8 @@ function collectRoutineModalData() {
     const sets = getField(row, "sets");
     const reps = getField(row, "reps");
     const weight = getField(row, "weight");
+    const duration = getField(row, "duration");
+    const rest = getField(row, "rest");
     const notes = getField(row, "notes");
     const imageUrl = getField(row, "imageUrl");
     const videoUrl = getField(row, "videoUrl");
@@ -1862,6 +1908,8 @@ function collectRoutineModalData() {
       sets: Number(sets || 0),
       reps: String(reps).trim(),
       weight: Number(weight || 0),
+      duration: Math.max(0, Number(duration || 0)),
+      rest: Math.max(0, Number(rest || 0)),
       unit: State.prefs.unit,
       notes: String(notes).trim(),
       imageUrl: cleanMediaUrl(imageUrl),
@@ -2001,6 +2049,7 @@ function loadExercisesFromSelectedRoutine() {
 
   empty.classList.add("is-hidden");
   wrap.classList.remove("is-hidden");
+  decorateExerciseCards();
 
   setDraftSession(collectSessionDraftFromUI());
   toast("Ejercicios cargados", r.name, "ok");
@@ -2087,6 +2136,7 @@ function applyDraftToSessionUI(draft) {
 
     empty.classList.add("is-hidden");
     wrap.classList.remove("is-hidden");
+    decorateExerciseCards();
   } else {
     empty.classList.remove("is-hidden");
     wrap.classList.add("is-hidden");
@@ -2102,6 +2152,7 @@ function resetSessionUI() {
   $("#sessionNotes") && ($("#sessionNotes").value = "");
 
   State.cardioDraft = null;
+  State.cardioListDraft = [];
   renderCardioSummary();
 
   const wrap = $("#sessionExercises");
@@ -2729,7 +2780,7 @@ function renderGoals() {
 
     const prs = computePRs();
     const sessions7 = getSessionsInLastDays(7);
-    const cardio7 = sessions7.reduce((acc, s) => acc + (s.cardio?.minutes ? Number(s.cardio.minutes) : 0), 0);
+    const cardio7 = sessions7.reduce((acc, s) => acc + sessionCardios(s).reduce((n,c) => n + Number(c.minutes || 0), 0), 0);
     const bodyWeight = getLatestBodyWeight();
 
     objList.forEach(g => {
@@ -2896,13 +2947,202 @@ function renderGoals() {
 }
 
 function renderCardioSummary() {
-  const box = $("#cardioSummary");
-  if (!box) return;
-  const c = State.cardioDraft;
-  box.textContent = c
-    ? `Cardio: ${c.machine} | ${c.minutes} min | ${c.intensity || "-"}`
-    : "Cardio: ninguno";
+  renderCardioList();
 }
+
+/* --------------------------- CARDIO VISUAL + TIMER --------------------------- */
+function buildCardioCard(c, index = -1) {
+  const image = c.imageUrl
+    ? el("img", { class:"cardio-card__img", src:c.imageUrl, alt:`Cardio ${c.machine}`, loading:"lazy" })
+    : el("span", { class:"cardio-card__fallback-icon", text:"❤️" });
+  const card = el("article", { class:"cardio-card" }, [
+    el("div", { class:"cardio-card__image-container" }, [image]),
+    el("div", { class:"cardio-card__info" }, [
+      el("div", { class:"cardio-card__machine" }, [
+        el("span", { text:c.machine || "Cardio" }),
+        el("span", { class:`badge-intensity badge-intensity--${String(c.intensity || "suave").toLowerCase()}`, text:c.intensity || "Suave" })
+      ]),
+      el("div", { class:"cardio-card__meta", text:`${Number(c.minutes || 0)} minutos` }),
+      c.notes ? el("div", { class:"cardio-card__notes", text:c.notes }) : el("span")
+    ])
+  ]);
+  if (index >= 0) card.appendChild(el("button", { class:"icon-btn", type:"button", title:"Editar cardio", "aria-label":"Editar cardio", text:"✏️", onclick:() => openCardioModal(index) }));
+  return card;
+}
+
+function renderCardioList() {
+  const wrap = $("#sessionCardioList");
+  if (!wrap) return;
+  wrap.innerHTML = "";
+  const list = State.cardioListDraft?.length ? State.cardioListDraft : (State.cardioDraft ? [State.cardioDraft] : []);
+  State.cardioListDraft = list;
+  State.cardioDraft = list[0] || null;
+  if (!list.length) {
+    wrap.appendChild(el("div", { id:"cardioSummary", class:"muted", text:"Aún no has agregado cardio." }));
+    return;
+  }
+  list.forEach((c, i) => wrap.appendChild(buildCardioCard(c, i)));
+}
+
+function setupCardioModal(index = -1) {
+  State.cardioEditIndex = index;
+  const current = index >= 0 ? State.cardioListDraft[index] : null;
+  $("#cardioMachine").value = current?.machine || "Elíptica";
+  $("#cardioMinutes").value = current?.minutes ?? "";
+  $("#cardioIntensity").value = current?.intensity || "Suave";
+  $("#cardioNotes").value = current?.notes || "";
+  $("#cardioImageUrl").value = current?.imageUrl || "";
+  $("#btnDeleteCardio").hidden = index < 0;
+  $("#btnUploadCardioImage").onclick = () => $("#cardioImageFile").click();
+  $("#cardioImageFile").onchange = async () => {
+    const file = $("#cardioImageFile").files?.[0];
+    if (!file) return;
+    await uploadExerciseImageForRow(null, file, $("#cardioImageUrl"), $("#cardioMachine"));
+    $("#cardioImageFile").value = "";
+  };
+  $("#btnSaveCardio").onclick = () => {
+    const cardio = {
+      machine: $("#cardioMachine").value || "",
+      minutes: Number($("#cardioMinutes").value || 0),
+      intensity: $("#cardioIntensity").value || "",
+      notes: $("#cardioNotes").value || "",
+      imageUrl: cleanMediaUrl($("#cardioImageUrl").value)
+    };
+    if (!cardio.machine || cardio.minutes <= 0) return toast("Cardio incompleto", "Elige máquina y minutos (>0).", "warn");
+    if (index >= 0) State.cardioListDraft[index] = cardio; else State.cardioListDraft.push(cardio);
+    State.cardioDraft = State.cardioListDraft[0] || null;
+    renderCardioList();
+    setDraftSession(collectSessionDraftFromUI());
+    closeModal("#modalCardio");
+    toast("Cardio guardado", `${cardio.machine} • ${cardio.minutes} min`, "ok");
+  };
+  $("#btnDeleteCardio").onclick = async () => {
+    if (index < 0) return;
+    if (!await confirmDialog({ title:"Quitar cardio", text:"¿Eliminar este cardio de la sesión?", yesText:"Quitar", noText:"Cancelar" })) return;
+    State.cardioListDraft.splice(index, 1);
+    State.cardioDraft = State.cardioListDraft[0] || null;
+    renderCardioList();
+    setDraftSession(collectSessionDraftFromUI());
+    closeModal("#modalCardio");
+  };
+  openModal("#modalCardio");
+}
+
+openCardioModal = setupCardioModal;
+
+const TimerSounds = {
+  context:null,
+  tone(frequency=660, duration=.12) {
+    try {
+      this.context ||= new (window.AudioContext || window.webkitAudioContext)();
+      const oscillator = this.context.createOscillator();
+      const gain = this.context.createGain();
+      oscillator.frequency.value = frequency;
+      gain.gain.setValueAtTime(.12, this.context.currentTime);
+      gain.gain.exponentialRampToValueAtTime(.001, this.context.currentTime + duration);
+      oscillator.connect(gain).connect(this.context.destination);
+      oscillator.start(); oscillator.stop(this.context.currentTime + duration);
+    } catch {}
+  },
+  success() { [523,659,784].forEach((f,i) => setTimeout(() => this.tone(f,.2), i*130)); }
+};
+
+const GymTimer = {
+  interval:null, remaining:0, total:0, paused:false, mode:"exercise", rest:0, title:"",
+  start(seconds, { mode="exercise", title="Ejercicio", rest=0 }={}) {
+    this.stop(false); this.remaining=this.total=Math.max(1,Number(seconds)); this.mode=mode; this.rest=Number(rest||0); this.title=title; this.paused=false;
+    $("#floating-timer")?.classList.remove("is-hidden"); this.bind(); this.paint();
+    this.interval=setInterval(() => { if (this.paused) return; this.remaining--; if (this.remaining<=3 && this.remaining>0) TimerSounds.tone(); this.paint(); if (this.remaining<=0) this.finish(); },1000);
+  },
+  finish() {
+    clearInterval(this.interval); TimerSounds.success();
+    if (this.mode==="exercise" && this.rest>0) setTimeout(() => this.start(this.rest,{mode:"rest",title:this.title}),350);
+    else setTimeout(() => this.stop(),500);
+  },
+  stop(hide=true) { clearInterval(this.interval); this.interval=null; if(hide) $("#floating-timer")?.classList.add("is-hidden"); },
+  paint() {
+    $("#timer-title").textContent=this.title; $("#timer-status").textContent=this.mode==="rest"?"DESCANSO":"EJERCICIO";
+    $("#timer-display").textContent=`${String(Math.floor(this.remaining/60)).padStart(2,"0")}:${String(this.remaining%60).padStart(2,"0")}`;
+    $("#timer-progress-fill").style.width=`${Math.max(0,(this.remaining/this.total)*100)}%`;
+    $("#btn-timer-play").textContent=this.paused?"▶️ Continuar":"⏸️ Pausa";
+  },
+  bind() {
+    $("#btn-timer-play").onclick=()=>{this.paused=!this.paused;this.paint();};
+    $("#btn-timer-skip").onclick=()=>this.finish();
+    $("#btn-timer-reset").onclick=()=>{this.remaining=this.total;this.paused=false;this.paint();};
+    $("#btn-close-timer").onclick=()=>this.stop();
+  }
+};
+
+function decorateExerciseCards() {
+  const routine = State.routines.find(r => r.id === $("#sessionRoutineSelect")?.value);
+  $$(".exercise-card", $("#sessionExercises")).forEach(card => {
+    if (card.dataset.timerReady) return;
+    const ex = routine?.exercises?.find(x => x.name === card.dataset.exerciseName) || {};
+    const duration = Number(ex.duration || card.dataset.duration || 0);
+    const rest = Number(ex.rest || card.dataset.rest || 0);
+    card.dataset.duration=duration; card.dataset.rest=rest; card.dataset.timerReady="1";
+    const box=$(".exercise-card__timer-box",card); if(!box) return;
+    if(duration>0) {
+      box.appendChild(el("div",{class:"exercise-action exercise-action--timer"},[
+        el("div",{class:"exercise-action__copy"},[
+          el("strong",{text:`Ejercicio por tiempo · ${duration} segundos`}),
+          el("span",{text:rest>0?`Al terminar comenzará un descanso de ${rest} segundos.`:"Pulsa iniciar cuando estés listo."})
+        ]),
+        el("button",{class:"btn btn--primary",type:"button",text:`▶ Iniciar ejercicio`,onclick:()=>GymTimer.start(duration,{title:ex.name||card.dataset.exerciseName,rest})})
+      ]));
+    }
+    else {
+      const sets=Math.max(0,Number(ex.sets||$$("input",card)[0]?.value||0)); if(!sets) return;
+      const badges=el("div",{class:"set-tracker__badges"});
+      const status=el("div",{class:"set-tracker__status",text:`0 de ${sets} series completadas`});
+      for(let i=1;i<=sets;i++) badges.appendChild(el("button",{class:"btn-set-badge",type:"button","aria-label":`Marcar serie ${i} como completada`,onclick:(e)=>{
+        e.currentTarget.classList.toggle("is-completed");
+        e.currentTarget.querySelector(".btn-set-badge__state").textContent =
+          e.currentTarget.classList.contains("is-completed") ? "✓ Completada" : "Toca para completar";
+        const done=$$(".btn-set-badge.is-completed",box).length;
+        status.textContent=`${done} de ${sets} series completadas`;
+        if(done===sets) { TimerSounds.success(); status.textContent=`¡Ejercicio completado! ${sets} de ${sets} series`; }
+        else if(e.currentTarget.classList.contains("is-completed") && rest>0) GymTimer.start(rest,{mode:"rest",title:`${ex.name||card.dataset.exerciseName} · descanso`});
+      }},[
+        el("span",{class:"btn-set-badge__number",text:String(i)}),
+        el("span",{class:"btn-set-badge__copy"},[
+          el("strong",{text:`Serie ${i}`}),
+          el("span",{class:"btn-set-badge__state",text:"Toca para completar"})
+        ])
+      ]));
+      box.appendChild(el("div",{class:"set-tracker"},[
+        el("div",{class:"set-tracker__head"},[
+          el("div",{},[
+            el("strong",{text:"Cuando termines una serie, pulsa su botón"}),
+            el("span",{text:rest>0?`Al pulsarlo comenzará el descanso de ${rest} segundos.`:"El botón se pondrá verde. Puedes volver a pulsarlo para desmarcarlo."})
+          ]),
+          status
+        ]),
+        badges
+      ]));
+    }
+  });
+}
+
+const originalCollectSessionDraftFromUI = collectSessionDraftFromUI;
+collectSessionDraftFromUI = function() {
+  const draft=originalCollectSessionDraftFromUI();
+  draft.cardios=(State.cardioListDraft||[]).map(c=>({...c}));
+  draft.cardio=draft.cardios[0]||null;
+  draft.exercises.forEach(ex=>{const card=$$(".exercise-card",$("#sessionExercises")).find(c=>c.dataset.exerciseName===ex.name);ex.duration=Number(card?.dataset.duration||0);ex.rest=Number(card?.dataset.rest||0);});
+  return draft;
+};
+
+const originalApplyDraftToSessionUI = applyDraftToSessionUI;
+applyDraftToSessionUI = function(draft) {
+  State.cardioListDraft=sessionCardios(draft).map(c=>({...c})); State.cardioDraft=State.cardioListDraft[0]||null;
+  originalApplyDraftToSessionUI(draft); renderCardioList(); setTimeout(decorateExerciseCards);
+};
+
+document.addEventListener("click", e => {
+  if (e.target instanceof HTMLElement && (e.target.id==="btnLoadRoutineIntoSession" || e.target.id==="btnAddCardio")) setTimeout(decorateExerciseCards);
+});
 
 function renderHistory() {
   const list = $("#historyList");
