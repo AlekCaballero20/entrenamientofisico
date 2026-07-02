@@ -171,6 +171,51 @@
     return true;
   };
 
+  /* -----------------------------------------------------------
+     Compartir rutinas/programas entre usuarios (colección shares)
+  ----------------------------------------------------------- */
+  // Correos con acceso (para sugerencias en la UI de compartir)
+  Sync.allowedEmails = ALLOWED_EMAILS.slice();
+
+  Sync.sendShare = async function (share) {
+    await Sync.ready;
+    const user = Sync.currentUser;
+    if (!user) throw new Error("No hay usuario autenticado.");
+    const doc = {
+      toEmail: String(share.toEmail || "").trim().toLowerCase(),
+      fromUid: user.uid,
+      fromEmail: (user.email || "").toLowerCase(),
+      fromName: user.displayName || user.email || "",
+      kind: share.kind === "program" ? "program" : "routine",
+      name: String(share.name || ""),
+      payload: share.payload || {},
+      createdAt: window.firebase.firestore.FieldValue.serverTimestamp(),
+      createdAtMs: Date.now()
+    };
+    if (!doc.toEmail) throw new Error("Falta el correo del destinatario.");
+    const ref = await Sync.db.collection("shares").add(doc);
+    return ref.id;
+  };
+
+  Sync.fetchIncomingShares = async function () {
+    await Sync.ready;
+    const user = Sync.currentUser;
+    if (!user || !user.email) return [];
+    const snap = await Sync.db.collection("shares")
+      .where("toEmail", "==", user.email.toLowerCase())
+      .get();
+    const out = [];
+    snap.forEach((d) => out.push({ id: d.id, ...d.data() }));
+    out.sort((a, b) => (b.createdAtMs || 0) - (a.createdAtMs || 0));
+    return out;
+  };
+
+  Sync.deleteShare = async function (id) {
+    await Sync.ready;
+    await Sync.db.collection("shares").doc(id).delete();
+    return true;
+  };
+
   Sync.uploadExerciseImage = async function (file, exerciseName) {
     await Sync.ready;
     if (!file) throw new Error("No hay archivo para subir.");

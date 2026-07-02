@@ -2764,3 +2764,78 @@ body.workout-open { overflow: hidden; }
 .cardio-chip__del:hover {
   background: rgba(255,91,112,.16);
 }
+
+/* =========================================================
+   NUEVO: COMPARTIR RUTINAS / PROGRAMAS
+========================================================= */
+.modal__panel--narrow {
+  width: min(480px, calc(100vw - 24px));
+}
+
+.share-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line));
+  background: rgba(106,167,255,.08);
+}
+
+.share-summary__icon {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.share-summary__name {
+  font-weight: 850;
+  font-size: 15px;
+}
+
+/* Bandeja "Compartidos contigo" */
+.shared-inbox {
+  margin-bottom: 14px;
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--line));
+  background:
+    radial-gradient(500px 160px at 0% 0%, rgba(106,167,255,.10), transparent 60%),
+    var(--panel);
+}
+
+.share-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,.03);
+  flex-wrap: wrap;
+}
+
+.share-item__icon {
+  font-size: 24px;
+  line-height: 1;
+}
+
+.share-item__info {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.share-item__name { font-weight: 850; }
+.share-item__meta { font-size: 12px; margin-top: 2px; }
+
+.share-item__actions {
+  display: flex;
+  gap: 8px;
+}
+
+@media (max-width: 700px) {
+  .share-item__actions {
+    width: 100%;
+  }
+  .share-item__actions .btn {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+}

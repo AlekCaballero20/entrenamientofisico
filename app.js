@@ -24,7 +24,7 @@
 /* ---------------------------
    CONSTANTS / KEYS
 --------------------------- */
-const APP_VERSION = "0.5.2-cardio-activities";
+const APP_VERSION = "0.6.0-sharing";
 
 // Cache interna por usuario: no es un modo local de trabajo, solo evita perder
 // estado temporal mientras Firestore termina de responder.
@@ -437,6 +437,14 @@ async function initFirebaseSync() {
     // Primera vez sin datos en ningún lado → cargar rutinas predeterminadas.
     // (No hace nada si ya hay rutinas o si ya se sembró antes.)
     if (maybeSeedDefaultRoutines()) scheduleRender();
+
+    // Buscar rutinas/programas que otros usuarios me hayan compartido
+    refreshIncomingShares().then(() => {
+      const n = (State.incomingShares || []).length;
+      if (n > 0) {
+        toast("📥 Compartidos contigo", `Tienes ${n} rutina(s)/programa(s) por aceptar en la sección Rutinas.`, "ok");
+      }
+    });
   } catch (err) {
     console.error("[Firebase] init error", err);
     firebaseBootstrapped = false;
@@ -465,6 +473,229 @@ async function uploadExerciseImageForRow(row, file, imageInput, nameInput) {
 
 
 /* ---------------------------
+   COMPARTIR RUTINAS / PROGRAMAS
+   El remitente escribe el correo del destinatario; el documento viaja por
+   la colección "shares" de Firestore y el destinatario lo acepta o rechaza
+   desde la tarjeta "Compartidos contigo" en Rutinas.
+--------------------------- */
+let shareContext = null; // { kind: "routine"|"program", name, payload }
+
+function sanitizeForShare(obj) {
+  // Firestore rechaza `undefined`; un round-trip por JSON lo limpia.
+  return JSON.parse(JSON.stringify(obj ?? null));
+}
+
+function openShareModal(context) {
+  const sync = window.FirebaseSync;
+  if (!sync || !sync.currentUser) {
+    toast("Inicia sesión", "Necesitas estar conectado para compartir.", "warn");
+    return;
+  }
+  shareContext = context;
+
+  const summary = $("#shareSummary");
+  if (summary) {
+    summary.innerHTML = "";
+    const meta = context.kind === "program"
+      ? `Programa completo • ${(context.payload.routines || []).length} rutina(s)`
+      : `Rutina • ${(context.payload.routine?.exercises || []).length} ejercicio(s)`;
+    summary.appendChild(el("div", { class:"share-summary__icon", text: context.kind === "program" ? "🗂️" : "📋" }));
+    summary.appendChild(el("div", { class:"share-summary__info" }, [
+      el("div", { class:"share-summary__name", text: context.name }),
+      el("div", { class:"muted", text: meta })
+    ]));
+  }
+
+  // Sugerencias: correos con acceso, excluyendo el propio
+  const dl = $("#shareEmailSuggestions");
+  if (dl) {
+    dl.innerHTML = "";
+    const mine = (sync.currentUser.email || "").toLowerCase();
+    (sync.allowedEmails || [])
+      .filter(e => e.toLowerCase() !== mine)
+      .forEach(e => dl.appendChild(el("option", { value: e })));
+  }
+
+  const input = $("#shareEmail");
+  if (input) input.value = "";
+  $("#btnSendShare") && ($("#btnSendShare").onclick = () => sendShareFromModal());
+  openModal("#modalShare");
+  input && input.focus({ preventScroll: true });
+}
+
+async function sendShareFromModal() {
+  const sync = window.FirebaseSync;
+  if (!shareContext || !sync) return;
+
+  const email = ($("#shareEmail")?.value || "").trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    toast("Correo inválido", "Escribe un correo válido, ej. amigo@gmail.com.", "warn");
+    return;
+  }
+  const mine = (sync.currentUser?.email || "").toLowerCase();
+  if (email === mine) {
+    toast("Ese eres tú 😄", "Escribe el correo de otra persona.", "warn");
+    return;
+  }
+  if (Array.isArray(sync.allowedEmails) && !sync.allowedEmails.some(e => e.toLowerCase() === email)) {
+    const ok = await confirmDialog({
+      title: "Correo sin acceso a GymOS",
+      text: `${email} todavía no está en la lista de usuarios autorizados. Se enviará igual y lo verá cuando tenga acceso. ¿Continuar?`,
+      yesText: "Enviar igual",
+      noText: "Cancelar"
+    });
+    if (!ok) return;
+  }
+
+  const btn = $("#btnSendShare");
+  try {
+    if (btn) { btn.disabled = true; btn.textContent = "Enviando…"; }
+    await sync.sendShare({
+      toEmail: email,
+      kind: shareContext.kind,
+      name: shareContext.name,
+      payload: sanitizeForShare(shareContext.payload)
+    });
+    closeModal("#modalShare");
+    toast("¡Compartido! 📤", `"${shareContext.name}" fue enviado a ${email}.`, "ok");
+    shareContext = null;
+  } catch (err) {
+    console.error("[Share] send error", err);
+    toast("No se pudo compartir", "Revisa tu conexión o las reglas de Firestore.", "warn");
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "📤 Enviar"; }
+  }
+}
+
+function shareRoutine(r) {
+  if (!r) return;
+  openShareModal({ kind:"routine", name: r.name, payload: { routine: r } });
+}
+
+function shareProgram(p) {
+  if (!p) return;
+  const routines = State.routines.filter(r => r.programId === p.id);
+  if (!routines.length) {
+    toast("Programa vacío", "Agrega rutinas al programa antes de compartirlo.", "warn");
+    return;
+  }
+  openShareModal({ kind:"program", name: p.name, payload: { program: { name: p.name }, routines } });
+}
+
+async function refreshIncomingShares(showFeedback = false) {
+  const sync = window.FirebaseSync;
+  if (!sync || !sync.currentUser || typeof sync.fetchIncomingShares !== "function") return;
+  try {
+    State.incomingShares = await sync.fetchIncomingShares();
+    renderSharedInbox();
+    if (showFeedback) {
+      toast("Actualizado", State.incomingShares.length
+        ? `Tienes ${State.incomingShares.length} elemento(s) compartidos pendientes.`
+        : "No tienes nada compartido pendiente.", "ok");
+    }
+  } catch (err) {
+    console.error("[Share] fetch error", err);
+    if (showFeedback) toast("No se pudo consultar", "Revisa conexión o reglas de Firestore.", "warn");
+  }
+}
+
+function renderSharedInbox() {
+  const card = $("#sharedInbox");
+  const list = $("#sharedInboxList");
+  if (!card || !list) return;
+
+  const shares = State.incomingShares || [];
+  card.classList.toggle("is-hidden", !shares.length);
+  list.innerHTML = "";
+
+  shares.forEach(s => {
+    const meta = s.kind === "program"
+      ? `Programa • ${(s.payload?.routines || []).length} rutina(s)`
+      : `Rutina • ${(s.payload?.routine?.exercises || []).length} ejercicio(s)`;
+    list.appendChild(el("article", { class:"share-item" }, [
+      el("div", { class:"share-item__icon", text: s.kind === "program" ? "🗂️" : "📋" }),
+      el("div", { class:"share-item__info" }, [
+        el("div", { class:"share-item__name", text: s.name || "(sin nombre)" }),
+        el("div", { class:"muted share-item__meta", text: `${meta} • de ${s.fromName || s.fromEmail || "alguien"}` })
+      ]),
+      el("div", { class:"share-item__actions" }, [
+        el("button", { class:"btn btn--primary btn--sm", type:"button", onclick:() => acceptShare(s) }, ["✓ Aceptar"]),
+        el("button", { class:"btn btn--ghost btn--sm", type:"button", onclick:() => rejectShare(s) }, ["Rechazar"])
+      ])
+    ]));
+  });
+}
+
+async function acceptShare(share) {
+  const sync = window.FirebaseSync;
+  try {
+    const now = Date.now();
+    if (share.kind === "program") {
+      const prog = {
+        id: uid("program"),
+        name: String(share.payload?.program?.name || share.name || "Programa compartido").trim(),
+        createdAt: now,
+        updatedAt: now
+      };
+      State.programs.push(prog);
+      (share.payload?.routines || []).forEach(r => {
+        State.routines.push({
+          ...r,
+          id: uid("routine"),
+          programId: prog.id,
+          exercises: Array.isArray(r.exercises) ? r.exercises.map(withExerciseMedia) : [],
+          createdAt: now,
+          updatedAt: now
+        });
+      });
+      State.activeProgramId = prog.id;
+      State.selectedRoutineId = null;
+      saveRoutines();
+      savePrograms();
+      toast("Programa agregado 🗂️", `"${prog.name}" ya está en tus programas.`, "ok");
+    } else {
+      const r = share.payload?.routine;
+      if (!r) throw new Error("El compartido no tiene rutina.");
+      const created = createRoutine(r);
+      State.selectedRoutineId = created.id;
+      toast("Rutina agregada 📋", `"${created.name}" quedó en tu programa activo.`, "ok");
+    }
+
+    if (sync && typeof sync.deleteShare === "function") {
+      await sync.deleteShare(share.id);
+    }
+    State.incomingShares = (State.incomingShares || []).filter(x => x.id !== share.id);
+    renderSharedInbox();
+    scheduleRender();
+  } catch (err) {
+    console.error("[Share] accept error", err);
+    toast("No se pudo aceptar", "Inténtalo de nuevo en un momento.", "warn");
+  }
+}
+
+async function rejectShare(share) {
+  const ok = await confirmDialog({
+    title: "Rechazar compartido",
+    text: `¿Rechazar "${share.name}"? Quien lo envió no será notificado.`,
+    yesText: "Rechazar",
+    noText: "Cancelar"
+  });
+  if (!ok) return;
+  try {
+    const sync = window.FirebaseSync;
+    if (sync && typeof sync.deleteShare === "function") {
+      await sync.deleteShare(share.id);
+    }
+    State.incomingShares = (State.incomingShares || []).filter(x => x.id !== share.id);
+    renderSharedInbox();
+    toast("Rechazado", "", "warn");
+  } catch (err) {
+    console.error("[Share] reject error", err);
+    toast("No se pudo rechazar", "Inténtalo de nuevo.", "warn");
+  }
+}
+
+/* ---------------------------
    APP STATE
 --------------------------- */
 const State = {
@@ -480,6 +711,7 @@ const State = {
   cardioListDraft: [],
   cardioEditIndex: -1,
   sessionDraft: null,
+  incomingShares: [],
   route: "dashboard"
 };
 
@@ -1635,6 +1867,12 @@ function renderProgramBar() {
     scheduleRender();
   });
 
+  bind("#btnShareProgram", () => {
+    const p = activeProgram();
+    if (!p) return;
+    shareProgram(p);
+  });
+
   bind("#btnDeleteProgram", async () => {
     const p = activeProgram();
     if (!p) return;
@@ -1663,6 +1901,8 @@ function renderRoutines() {
   if (!grid || !empty) return;
 
   renderProgramBar();
+  renderSharedInbox();
+  $("#btnRefreshShares") && ($("#btnRefreshShares").onclick = () => refreshIncomingShares(true));
 
   const inProgram = routinesInActiveProgram();
   $("#routinesCount") && ($("#routinesCount").textContent = `${inProgram.length}`);
@@ -1802,6 +2042,7 @@ function renderRoutineDetail() {
   });
 
   $("#btnEditRoutine") && ($("#btnEditRoutine").onclick = () => openRoutineModal({ mode:"edit", routine: r }));
+  $("#btnShareRoutine") && ($("#btnShareRoutine").onclick = () => shareRoutine(r));
   $("#btnDuplicateRoutine") && ($("#btnDuplicateRoutine").onclick = () => {
     const copy = duplicateRoutine(r.id);
     if (!copy) return;

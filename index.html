@@ -67,7 +67,7 @@
 
       window.addEventListener('load', async () => {
         try {
-          const swUrl = './sw.js?v=2026-07-01-cardio-activities-1';
+          const swUrl = './sw.js?v=2026-07-01-sharing-1';
           const reg = await navigator.serviceWorker.register(swUrl, {
             scope: './',
             updateViaCache: 'none'
@@ -421,6 +421,16 @@
 
         <!-- ROUTE: ROUTINES -->
         <section id="view-routines" class="view" data-view="routines">
+          <article class="card shared-inbox is-hidden" id="sharedInbox">
+            <div class="card__head">
+              <h2>📥 Compartidos contigo</h2>
+              <button id="btnRefreshShares" class="btn btn--ghost btn--sm" type="button">🔄 Actualizar</button>
+            </div>
+            <div class="card__body">
+              <div class="stack" id="sharedInboxList"></div>
+            </div>
+          </article>
+
           <div class="program-bar">
             <div class="program-bar__left">
               <label class="program-bar__label" for="programSelect">Programa</label>
@@ -430,6 +440,7 @@
               <button id="btnNewProgram" class="btn btn--ghost" type="button" title="Crear programa">➕ Nuevo</button>
               <button id="btnRenameProgram" class="btn btn--ghost" type="button" title="Renombrar programa">✏️ Renombrar</button>
               <button id="btnDuplicateProgram" class="btn btn--ghost" type="button" title="Duplicar programa con sus días">⧉ Duplicar</button>
+              <button id="btnShareProgram" class="btn btn--ghost" type="button" title="Compartir programa con otro usuario">📤 Compartir</button>
               <button id="btnDeleteProgram" class="btn btn--ghost" type="button" title="Eliminar programa">🗑️ Eliminar</button>
             </div>
           </div>
@@ -486,6 +497,7 @@
                     <div class="row">
                       <button class="btn" id="btnEditRoutine" type="button">Editar</button>
                       <button class="btn btn--ghost" id="btnDuplicateRoutine" type="button">Duplicar</button>
+                      <button class="btn btn--ghost" id="btnShareRoutine" type="button">📤 Compartir</button>
                       <button class="btn btn--danger" id="btnDeleteRoutine" type="button">Eliminar</button>
                     </div>
                   </div>
@@ -1197,6 +1209,40 @@
           <button id="btnDeleteCardio" class="btn btn--ghost" type="button">Quitar cardio</button>
           <button class="btn btn--ghost" type="button" data-close>Cancelar</button>
           <button id="btnSaveCardio" class="btn btn--primary" type="button">Guardar cardio</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: Compartir rutina/programa -->
+    <div id="modalShare" class="modal" role="dialog" aria-modal="true" aria-labelledby="modalShareTitle" hidden>
+      <div class="modal__backdrop" data-close></div>
+      <div class="modal__panel modal__panel--narrow" role="document">
+        <div class="modal__head">
+          <h3 id="modalShareTitle">📤 Compartir</h3>
+          <button class="icon-btn" type="button" data-close aria-label="Cerrar">
+            <span class="icon" aria-hidden="true">✕</span>
+          </button>
+        </div>
+
+        <div class="modal__body form">
+          <div class="share-summary" id="shareSummary"></div>
+
+          <label class="field">
+            <span class="field__label">Correo del destinatario</span>
+            <input id="shareEmail" class="input" type="email" list="shareEmailSuggestions"
+                   placeholder="Ej. amigo@gmail.com" autocomplete="off" inputmode="email" />
+            <datalist id="shareEmailSuggestions"></datalist>
+          </label>
+
+          <div class="note muted">
+            La persona lo verá en su sección <strong>Rutinas</strong> ("Compartidos contigo")
+            y podrá aceptarlo o rechazarlo. No se comparte tu historial ni tus sesiones.
+          </div>
+        </div>
+
+        <div class="modal__foot">
+          <button class="btn btn--ghost" type="button" data-close>Cancelar</button>
+          <button id="btnSendShare" class="btn btn--primary" type="button">📤 Enviar</button>
         </div>
       </div>
     </div>

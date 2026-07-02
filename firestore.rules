@@ -5,5 +5,22 @@ service cloud.firestore {
     match /users/{uid}/appState/main {
       allow read, write: if request.auth != null && request.auth.uid == uid;
     }
+
+    // Rutinas y programas compartidos entre usuarios.
+    // El remitente crea el documento con su uid/email; el destinatario lo
+    // encuentra consultando por su propio correo (toEmail, en minúsculas).
+    match /shares/{shareId} {
+      allow create: if request.auth != null
+        && request.resource.data.fromUid == request.auth.uid
+        && request.resource.data.toEmail is string
+        && request.resource.data.toEmail == request.resource.data.toEmail.lower()
+        && request.resource.data.kind in ['routine', 'program'];
+
+      allow read, delete: if request.auth != null
+        && (resource.data.toEmail == request.auth.token.email.lower()
+            || resource.data.fromUid == request.auth.uid);
+
+      allow update: if false;
+    }
   }
 }
