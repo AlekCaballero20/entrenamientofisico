@@ -2723,3 +2723,44 @@ body.workout-open { overflow: hidden; }
   background: linear-gradient(135deg, rgba(123,255,182,.30), rgba(106,167,255,.20));
   border-color: rgba(123,255,182,.42);
 }
+
+/* =========================================================
+   NUEVO: ACTIVIDADES DE CARDIO PERSONALIZADAS (modal)
+========================================================= */
+.cardio-custom-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: -4px;
+}
+
+.cardio-custom-list__label { font-size: 11px; }
+
+.cardio-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px 5px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--chip);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.cardio-chip__del {
+  border: 0;
+  background: transparent;
+  color: var(--bad);
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  padding: 3px 5px;
+  border-radius: 50%;
+  transition: background var(--t-fast) var(--ease);
+}
+
+.cardio-chip__del:hover {
+  background: rgba(255,91,112,.16);
+}

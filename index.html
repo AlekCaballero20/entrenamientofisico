@@ -67,7 +67,7 @@
 
       window.addEventListener('load', async () => {
         try {
-          const swUrl = './sw.js?v=2026-07-01-coach-timer-1';
+          const swUrl = './sw.js?v=2026-07-01-cardio-activities-1';
           const reg = await navigator.serviceWorker.register(swUrl, {
             scope: './',
             updateViaCache: 'none'
@@ -1153,16 +1153,12 @@
 
         <div class="modal__body form">
           <label class="field">
-            <span class="field__label">Máquina</span>
+            <span class="field__label">Actividad</span>
             <select id="cardioMachine" class="input">
               <option value="">Selecciona…</option>
-              <option value="Spinning">Spinning</option>
-              <option value="Escaladora">Escaladora</option>
-              <option value="Caminadora">Caminadora</option>
-              <option value="Elíptica">Elíptica</option>
-              <option value="Otra">Otra</option>
             </select>
           </label>
+          <div id="cardioCustomList" class="cardio-custom-list is-hidden"></div>
 
           <div class="row row--2">
             <label class="field">

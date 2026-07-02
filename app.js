@@ -24,7 +24,7 @@
 /* ---------------------------
    CONSTANTS / KEYS
 --------------------------- */
-const APP_VERSION = "0.5.1-coach-timer";
+const APP_VERSION = "0.5.2-cardio-activities";
 
 // Cache interna por usuario: no es un modo local de trabajo, solo evita perder
 // estado temporal mientras Firestore termina de responder.
@@ -3068,10 +3068,106 @@ function renderCardioList() {
   list.forEach((c, i) => wrap.appendChild(buildCardioCard(c, i)));
 }
 
+/* --------------------------- ACTIVIDADES DE CARDIO ---------------------------
+   Lista editable: opciones por defecto + actividades personalizadas del usuario.
+   Las personalizadas se guardan en prefs (localStorage + Firebase) para que
+   aparezcan siempre y en todos sus dispositivos. */
+const CARDIO_DEFAULT_ACTIVITIES = [
+  "Caminadora", "Elíptica", "Spinning", "Escaladora", "Bicicleta",
+  "Trotar / Correr", "Saltar cuerda", "Natación", "Remo", "Baile / Zumba"
+];
+
+function customCardioActivities() {
+  return Array.isArray(State.prefs.cardioActivities) ? State.prefs.cardioActivities : [];
+}
+
+function allCardioActivities() {
+  const seen = new Set();
+  const out = [];
+  [...CARDIO_DEFAULT_ACTIVITIES, ...customCardioActivities()].forEach(name => {
+    const key = String(name).trim().toLowerCase();
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    out.push(String(name).trim());
+  });
+  return out;
+}
+
+function addCustomCardioActivity(name) {
+  const clean = String(name || "").trim();
+  if (!clean) return false;
+  if (allCardioActivities().some(n => n.toLowerCase() === clean.toLowerCase())) return true;
+  State.prefs.cardioActivities = [...customCardioActivities(), clean];
+  savePrefs();
+  toast("Actividad agregada", `"${clean}" quedó guardada en tu lista de cardios.`, "ok");
+  return true;
+}
+
+function removeCustomCardioActivity(name) {
+  State.prefs.cardioActivities = customCardioActivities().filter(n => n !== name);
+  savePrefs();
+}
+
+function populateCardioActivitySelect(selected = "") {
+  const sel = $("#cardioMachine");
+  if (!sel) return;
+  sel.innerHTML = "";
+  sel.appendChild(el("option", { value:"", text:"Selecciona…" }));
+  const activities = allCardioActivities();
+  // Datos antiguos (p. ej. "Otra") siguen siendo seleccionables
+  if (selected && !activities.some(n => n.toLowerCase() === String(selected).toLowerCase())) {
+    activities.push(String(selected));
+  }
+  activities.forEach(n => sel.appendChild(el("option", { value:n, text:n })));
+  sel.appendChild(el("option", { value:"__add__", text:"➕ Agregar otra actividad…" }));
+  sel.value = selected || "";
+  sel.dataset.prev = sel.value;
+}
+
+function renderCardioCustomChips() {
+  const box = $("#cardioCustomList");
+  if (!box) return;
+  const customs = customCardioActivities();
+  box.innerHTML = "";
+  if (!customs.length) { box.classList.add("is-hidden"); return; }
+  box.classList.remove("is-hidden");
+  box.appendChild(el("span", { class:"muted cardio-custom-list__label", text:"Tus actividades:" }));
+  customs.forEach(n => {
+    box.appendChild(el("span", { class:"cardio-chip" }, [
+      n,
+      el("button", {
+        class:"cardio-chip__del", type:"button",
+        title:`Quitar "${n}" de la lista`, "aria-label":`Quitar ${n} de la lista`,
+        onclick: () => {
+          removeCustomCardioActivity(n);
+          const sel = $("#cardioMachine");
+          populateCardioActivitySelect(sel && sel.value === n ? "" : (sel?.value || ""));
+          renderCardioCustomChips();
+        }
+      }, ["✕"])
+    ]));
+  });
+}
+
+function bindCardioActivitySelect() {
+  const sel = $("#cardioMachine");
+  if (!sel) return;
+  sel.onchange = () => {
+    if (sel.value !== "__add__") { sel.dataset.prev = sel.value; return; }
+    const name = (window.prompt("Nombre de la actividad de cardio (ej. Fútbol, Senderismo, Boxeo…):", "") || "").trim();
+    if (!name) { sel.value = sel.dataset.prev || ""; return; }
+    addCustomCardioActivity(name);
+    populateCardioActivitySelect(name);
+    renderCardioCustomChips();
+  };
+}
+
 function setupCardioModal(index = -1) {
   State.cardioEditIndex = index;
   const current = index >= 0 ? State.cardioListDraft[index] : null;
-  $("#cardioMachine").value = current?.machine || "Elíptica";
+  populateCardioActivitySelect(current?.machine || "");
+  renderCardioCustomChips();
+  bindCardioActivitySelect();
   $("#cardioMinutes").value = current?.minutes ?? "";
   $("#cardioIntensity").value = current?.intensity || "Suave";
   $("#cardioNotes").value = current?.notes || "";
@@ -3085,14 +3181,15 @@ function setupCardioModal(index = -1) {
     $("#cardioImageFile").value = "";
   };
   $("#btnSaveCardio").onclick = () => {
+    const machineVal = $("#cardioMachine").value;
     const cardio = {
-      machine: $("#cardioMachine").value || "",
+      machine: machineVal === "__add__" ? "" : (machineVal || ""),
       minutes: Number($("#cardioMinutes").value || 0),
       intensity: $("#cardioIntensity").value || "",
       notes: $("#cardioNotes").value || "",
       imageUrl: cleanMediaUrl($("#cardioImageUrl").value)
     };
-    if (!cardio.machine || cardio.minutes <= 0) return toast("Cardio incompleto", "Elige máquina y minutos (>0).", "warn");
+    if (!cardio.machine || cardio.minutes <= 0) return toast("Cardio incompleto", "Elige la actividad y los minutos (>0).", "warn");
     if (index >= 0) State.cardioListDraft[index] = cardio; else State.cardioListDraft.push(cardio);
     State.cardioDraft = State.cardioListDraft[0] || null;
     renderCardioList();
