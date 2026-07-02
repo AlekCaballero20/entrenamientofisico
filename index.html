@@ -67,7 +67,7 @@
 
       window.addEventListener('load', async () => {
         try {
-          const swUrl = './sw.js?v=2026-06-07-firebase-1';
+          const swUrl = './sw.js?v=2026-07-01-coach-timer-1';
           const reg = await navigator.serviceWorker.register(swUrl, {
             scope: './',
             updateViaCache: 'none'
@@ -266,6 +266,19 @@
       <main class="content" role="main">
         <!-- ROUTE: DASHBOARD -->
         <section id="view-dashboard" class="view is-active" data-view="dashboard">
+          <article class="streak-banner" aria-label="Racha de entrenamiento">
+            <div class="streak-banner__flame" id="streakFlame" aria-hidden="true">🔥</div>
+            <div class="streak-banner__info">
+              <div class="streak-banner__value"><span id="streakCurrent">0</span> <span class="streak-banner__unit">días de racha</span></div>
+              <div class="streak-banner__msg muted" id="streakMsg">Entrena hoy para empezar tu racha.</div>
+            </div>
+            <div class="streak-banner__week" id="streakWeek" aria-label="Últimos 7 días"></div>
+            <div class="streak-banner__best">
+              <div class="streak-banner__best-value" id="streakBest">0</div>
+              <div class="streak-banner__best-label muted">Mejor racha</div>
+            </div>
+          </article>
+
           <div class="grid grid--2">
             <article class="card">
               <div class="card__head">
@@ -555,15 +568,18 @@
                   </label>
                 </div>
 
-                <div class="cardio-section" style="margin-top: 15px; margin-bottom: 15px; padding: 12px; border-radius: 16px; border: 1px solid var(--line); background: rgba(255,255,255,.01); width: 100%;">
-                  <div class="row row--between" style="align-items: center; margin-bottom: 8px; width: 100%;">
-                    <span class="field__label" style="margin-bottom: 0; font-weight: 600;">Cardios Registrados</span>
-                    <button id="btnAddCardio" class="btn btn--ghost btn--sm" type="button">
-                      <span class="icon" aria-hidden="true">❤️</span> Agregar cardio
+                <div class="cardio-section">
+                  <div class="cardio-section__head">
+                    <div>
+                      <span class="cardio-section__title">❤️ Cardio de la sesión</span>
+                      <div class="cardio-section__hint muted">Registra caminadora, elíptica, spinning…</div>
+                    </div>
+                    <button id="btnAddCardio" class="btn btn--primary btn--sm" type="button">
+                      <span class="icon" aria-hidden="true">➕</span> Agregar cardio
                     </button>
                   </div>
-                  <div id="sessionCardioList" class="session-cardio-list row" style="gap: 12px; flex-wrap: wrap; width: 100%;">
-                    <div class="muted" id="cardioSummary" style="font-size: 13px; padding: 4px 0;">Cardio: ninguno</div>
+                  <div id="sessionCardioList" class="session-cardio-list">
+                    <div class="muted" id="cardioSummary">Cardio: ninguno</div>
                   </div>
                 </div>
 
@@ -606,6 +622,10 @@
               </div>
 
               <div class="card__foot">
+                <button id="btnWorkoutMode" class="btn btn--primary" type="button">
+                  <span class="icon" aria-hidden="true">🏋️</span>
+                  Modo entrenamiento
+                </button>
                 <button id="btnSaveSession" class="btn btn--primary" type="button">
                   <span class="icon" aria-hidden="true">💾</span>
                   Terminé · Guardar sesión
@@ -963,31 +983,31 @@
 
     <nav class="mobile-nav" aria-label="Navegacion movil">
       <a class="nav__item is-active" href="#dashboard" data-route="dashboard" aria-current="page">
-        <span class="nav__icon" aria-hidden="true">D</span>
+        <span class="nav__icon" aria-hidden="true">📊</span>
         <span class="nav__label">Inicio</span>
       </a>
       <a class="nav__item" href="#routines" data-route="routines">
-        <span class="nav__icon" aria-hidden="true">R</span>
+        <span class="nav__icon" aria-hidden="true">🗂️</span>
         <span class="nav__label">Rutinas</span>
       </a>
       <a class="nav__item" href="#new-session" data-route="new-session">
-        <span class="nav__icon" aria-hidden="true">S</span>
-        <span class="nav__label">Sesion</span>
+        <span class="nav__icon" aria-hidden="true">➕</span>
+        <span class="nav__label">Sesión</span>
       </a>
       <a class="nav__item" href="#history" data-route="history">
-        <span class="nav__icon" aria-hidden="true">H</span>
+        <span class="nav__icon" aria-hidden="true">🕒</span>
         <span class="nav__label">Historial</span>
       </a>
       <a class="nav__item" href="#progress" data-route="progress">
-        <span class="nav__icon" aria-hidden="true">P</span>
+        <span class="nav__icon" aria-hidden="true">📈</span>
         <span class="nav__label">Progreso</span>
       </a>
       <a class="nav__item" href="#goals" data-route="goals">
-        <span class="nav__icon" aria-hidden="true">O</span>
+        <span class="nav__icon" aria-hidden="true">🎯</span>
         <span class="nav__label">Objetivos</span>
       </a>
       <a class="nav__item" href="#settings" data-route="settings">
-        <span class="nav__icon" aria-hidden="true">A</span>
+        <span class="nav__icon" aria-hidden="true">⚙️</span>
         <span class="nav__label">Ajustes</span>
       </a>
     </nav>
@@ -1239,6 +1259,37 @@
       </div>
     </aside>
 
+    <!-- OVERLAY: Modo Entrenamiento (enfoque móvil) -->
+    <div id="workout-mode" class="workout-mode is-hidden" role="dialog" aria-modal="true" aria-label="Modo entrenamiento">
+      <header class="workout-mode__head">
+        <button id="btnExitWorkout" class="icon-btn workout-mode__exit" type="button" aria-label="Salir del modo entrenamiento">
+          <span class="icon" aria-hidden="true">✕</span>
+        </button>
+        <div class="workout-mode__titles">
+          <div class="workout-mode__routine" id="workoutRoutineName">Entrenamiento</div>
+          <div class="workout-mode__counter muted" id="workoutCounter">Ejercicio 1 de 1</div>
+        </div>
+        <button id="btnWorkoutCardio" class="icon-btn workout-mode__cardio" type="button" aria-label="Agregar cardio" title="Agregar cardio">
+          <span class="icon" aria-hidden="true">❤️</span>
+        </button>
+      </header>
+
+      <div class="workout-mode__progress" aria-hidden="true">
+        <div id="workoutProgressFill" class="workout-mode__progress-fill"></div>
+      </div>
+
+      <div id="workoutBody" class="workout-mode__body"></div>
+
+      <footer class="workout-mode__foot">
+        <button id="btnWorkoutPrev" class="btn workout-mode__nav-btn" type="button">
+          <span class="icon" aria-hidden="true">‹</span> Anterior
+        </button>
+        <button id="btnWorkoutNext" class="btn btn--primary workout-mode__nav-btn" type="button">
+          Siguiente <span class="icon" aria-hidden="true">›</span>
+        </button>
+      </footer>
+    </div>
+
     <!-- WIDGET: Temporizador Flotante -->
     <div id="floating-timer" class="floating-timer is-hidden">
       <div class="floating-timer__content">
@@ -1252,6 +1303,7 @@
           <div class="floating-timer__progress">
             <div id="timer-progress-fill" class="floating-timer__fill"></div>
           </div>
+          <div id="timer-coach" class="floating-timer__coach"></div>
         </div>
         <div class="floating-timer__actions">
           <button id="btn-timer-play" class="btn btn--primary btn--sm" type="button">⏸️ Pausa</button>

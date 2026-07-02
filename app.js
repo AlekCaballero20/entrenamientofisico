@@ -24,7 +24,7 @@
 /* ---------------------------
    CONSTANTS / KEYS
 --------------------------- */
-const APP_VERSION = "0.4.0-cardio-timer";
+const APP_VERSION = "0.5.1-coach-timer";
 
 // Cache interna por usuario: no es un modo local de trabajo, solo evita perder
 // estado temporal mientras Firestore termina de responder.
@@ -1327,6 +1327,88 @@ function renderAll() {
 }
 
 /* ---------------------------
+   STREAKS (rachas por días entrenados)
+--------------------------- */
+function dateToISO(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth()+1).padStart(2,"0");
+  const day = String(d.getDate()).padStart(2,"0");
+  return `${y}-${m}-${day}`;
+}
+
+function computeStreaks() {
+  const daysSet = new Set(
+    State.sessions.map(s => String(s.date || "")).filter(d => parseISODate(d))
+  );
+
+  // Mejor racha: recorre los días entrenados en orden cronológico
+  const sorted = [...daysSet].sort();
+  let best = 0, run = 0, prevDt = null;
+  for (const iso of sorted) {
+    const dt = parseISODate(iso);
+    run = (prevDt && daysBetween(prevDt, dt) === 1) ? run + 1 : 1;
+    best = Math.max(best, run);
+    prevDt = dt;
+  }
+
+  // Racha actual: cuenta hacia atrás desde hoy (si hoy no has entrenado,
+  // la racha sigue viva hasta que termine el día — se cuenta desde ayer).
+  const trainedToday = daysSet.has(todayISO());
+  let current = 0;
+  let cursor = new Date();
+  if (!trainedToday) cursor = addDays(cursor, -1);
+  while (daysSet.has(dateToISO(cursor))) {
+    current++;
+    cursor = addDays(cursor, -1);
+  }
+
+  return { current, best: Math.max(best, current), trainedToday, daysSet };
+}
+
+function renderStreakBanner() {
+  const currentEl = $("#streakCurrent");
+  if (!currentEl) return;
+
+  const { current, best, trainedToday, daysSet } = computeStreaks();
+
+  currentEl.textContent = String(current);
+  $("#streakBest") && ($("#streakBest").textContent = String(best));
+
+  const msg = $("#streakMsg");
+  if (msg) {
+    if (current === 0) msg.textContent = "Entrena hoy para encender tu racha.";
+    else if (trainedToday) msg.textContent = current >= 3 ? "¡Imparable! Sesión de hoy completada. 💪" : "¡Sesión de hoy completada!";
+    else msg.textContent = "Entrena hoy para no perder tu racha.";
+  }
+
+  const flame = $("#streakFlame");
+  if (flame) {
+    flame.textContent = current === 0 ? "🌱" : "🔥";
+    flame.classList.toggle("is-lit", current > 0 && trainedToday);
+  }
+
+  // Franja de los últimos 7 días (termina hoy)
+  const week = $("#streakWeek");
+  if (week) {
+    week.innerHTML = "";
+    const dayLetters = ["D","L","M","M","J","V","S"];
+    for (let i = 6; i >= 0; i--) {
+      const d = addDays(new Date(), -i);
+      const iso = dateToISO(d);
+      const done = daysSet.has(iso);
+      const isToday = i === 0;
+      week.appendChild(el("div", {
+        class: `streak-day${done ? " is-done" : ""}${isToday ? " is-today" : ""}`,
+        title: formatDate(iso, State.prefs)
+      }, [
+        el("span", { class:"streak-day__letter", text: dayLetters[d.getDay()] }),
+        el("span", { class:"streak-day__dot", text: done ? "✓" : "" })
+      ]));
+    }
+  }
+}
+
+/* ---------------------------
    DASHBOARD
 --------------------------- */
 function renderDashboard() {
@@ -1357,6 +1439,7 @@ function renderDashboard() {
   }
   $("#kpiPRs") && ($("#kpiPRs").textContent = String(prCountIn30));
 
+  renderStreakBanner();
   renderHeatmap();
   renderNextRoutineSuggestion();
   renderRecentSessions();
@@ -1990,6 +2073,7 @@ function renderNewSession() {
   $("#btnAddCardio") && ($("#btnAddCardio").onclick = () => openCardioModal());
   $("#btnSaveSession") && ($("#btnSaveSession").onclick = () => saveSessionFromUI());
   $("#btnPreviewSession") && ($("#btnPreviewSession").onclick = () => previewSession());
+  $("#btnWorkoutMode") && ($("#btnWorkoutMode").onclick = () => WorkoutMode.enter());
 
   bindSessionAutosaveOnce();
   renderCardioSummary();
@@ -2053,6 +2137,12 @@ function loadExercisesFromSelectedRoutine() {
 
   setDraftSession(collectSessionDraftFromUI());
   toast("Ejercicios cargados", r.name, "ok");
+
+  // En móvil, al activar la sesión entramos directo al modo entrenamiento
+  // para ver solo lo necesario y navegar más fácil.
+  if (window.matchMedia("(max-width: 980px)").matches) {
+    setTimeout(() => WorkoutMode.enter(0), 200);
+  }
 }
 
 function collectSessionDraftFromUI() {
@@ -2144,6 +2234,7 @@ function applyDraftToSessionUI(draft) {
 }
 
 function resetSessionUI() {
+  if (typeof WorkoutMode !== "undefined" && WorkoutMode.active) WorkoutMode.exit();
   $("#sessionRoutineSelect") && ($("#sessionRoutineSelect").value = "");
   $("#sessionDate") && ($("#sessionDate").value = todayISO());
   $("#sessionDuration") && ($("#sessionDuration").value = "");
@@ -2183,16 +2274,9 @@ function bindSessionAutosaveOnce() {
     wrap.dataset.bound = "1";
     wrap.addEventListener("input", onChange);
     wrap.addEventListener("change", onChange);
-
-    // Fix bug “doble click/focus raro”: si alguien clica en la tarjeta, enfoca el primer input una sola vez
-    wrap.addEventListener("click", (e) => {
-      const card = e.target instanceof HTMLElement ? e.target.closest(".exercise-card") : null;
-      if (!card) return;
-      // Si clicó directamente un input, no molestamos
-      if (e.target instanceof HTMLElement && e.target.matches("input, textarea, button, a, select")) return;
-      const first = card.querySelector("input");
-      first && first.focus({ preventScroll: true });
-    });
+    // Nota: no auto-enfocamos inputs al tocar la tarjeta. En móvil eso abría el
+    // teclado al marcar una serie como completada (los spans dentro del botón
+    // se escapaban del filtro). Los campos se tocan directamente cuando se necesitan.
   }
 }
 
@@ -3047,30 +3131,222 @@ const TimerSounds = {
   success() { [523,659,784].forEach((f,i) => setTimeout(() => this.tone(f,.2), i*130)); }
 };
 
+/* Mensajes de coach: acompañan cada fase del temporizador */
+const CoachMessages = {
+  exercise: [
+    "¡Tú puedes! 💪",
+    "Controla el movimiento, respira.",
+    "¡Dale con todo, campeón!",
+    "Técnica primero, el resto llega solo.",
+    "Cada segundo cuenta. ¡Aguanta!",
+    "Enfócate: solo tú y el ejercicio.",
+    "¡Fuerte! Tu yo del futuro te lo agradece."
+  ],
+  rest: [
+    "Respira profundo… recupera.",
+    "Hidrátate, ya casi viene la siguiente.",
+    "Sacude los músculos, afloja.",
+    "Buen trabajo. Ahora descansa de verdad.",
+    "Prepárate mentalmente para la siguiente serie."
+  ],
+  done: [
+    "¡Ejercicio completado! 🔥",
+    "¡Eso es disciplina pura! 💪",
+    "¡Brutal! Siguiente ejercicio te espera.",
+    "Hecho. Tu constancia está ganando.",
+    "¡Completado! Así se construye el progreso."
+  ],
+  pick(type) {
+    const list = this[type] || this.exercise;
+    return list[Math.floor(Math.random() * list.length)];
+  }
+};
+
 const GymTimer = {
   interval:null, remaining:0, total:0, paused:false, mode:"exercise", rest:0, title:"",
-  start(seconds, { mode="exercise", title="Ejercicio", rest=0 }={}) {
-    this.stop(false); this.remaining=this.total=Math.max(1,Number(seconds)); this.mode=mode; this.rest=Number(rest||0); this.title=title; this.paused=false;
+  sets:1, currentSet:1, exerciseSeconds:0, coachMsg:"", _endTimer:null,
+
+  /* Ciclo con series: ejercicio (serie 1) → descanso → ejercicio (serie 2) → … → completado.
+     `sets` = número de series; `set` = serie actual (interno, para encadenar fases). */
+  start(seconds, { mode="exercise", title="Ejercicio", rest=0, sets=1, set=1 }={}) {
+    this.stop(false); clearTimeout(this._endTimer);
+    this.remaining=this.total=Math.max(1,Number(seconds)); this.mode=mode; this.rest=Number(rest||0); this.title=title; this.paused=false;
+    this.sets=Math.max(1,Number(sets||1)); this.currentSet=clamp(Number(set||1),1,this.sets);
+    if (mode==="exercise") this.exerciseSeconds=this.total;
+    this.coachMsg=CoachMessages.pick(mode==="rest"?"rest":"exercise");
     $("#floating-timer")?.classList.remove("is-hidden"); this.bind(); this.paint();
     this.interval=setInterval(() => { if (this.paused) return; this.remaining--; if (this.remaining<=3 && this.remaining>0) TimerSounds.tone(); this.paint(); if (this.remaining<=0) this.finish(); },1000);
   },
+
   finish() {
-    clearInterval(this.interval); TimerSounds.success();
-    if (this.mode==="exercise" && this.rest>0) setTimeout(() => this.start(this.rest,{mode:"rest",title:this.title}),350);
-    else setTimeout(() => this.stop(),500);
+    clearInterval(this.interval);
+    const opts = { title:this.title, rest:this.rest, sets:this.sets };
+    if (this.mode==="exercise") {
+      if (this.currentSet < this.sets) {
+        TimerSounds.success();
+        if (this.rest>0) setTimeout(() => this.start(this.rest,{ ...opts, mode:"rest", set:this.currentSet }),350);
+        else setTimeout(() => this.start(this.exerciseSeconds,{ ...opts, mode:"exercise", set:this.currentSet+1 }),350);
+      } else {
+        this.complete();
+      }
+    } else {
+      // Terminó un descanso
+      if (this.currentSet < this.sets) {
+        TimerSounds.tone(880,.2);
+        setTimeout(() => this.start(this.exerciseSeconds||this.total,{ ...opts, mode:"exercise", set:this.currentSet+1 }),350);
+      } else {
+        this.endRest();
+      }
+    }
   },
-  stop(hide=true) { clearInterval(this.interval); this.interval=null; if(hide) $("#floating-timer")?.classList.add("is-hidden"); },
+
+  /* Todas las series completadas */
+  complete() {
+    TimerSounds.success();
+    this.coachMsg = CoachMessages.pick("done");
+    $("#timer-status") && ($("#timer-status").textContent="¡COMPLETADO!");
+    $("#timer-display") && ($("#timer-display").textContent="🎉");
+    $("#timer-progress-fill") && ($("#timer-progress-fill").style.width="100%");
+    $("#timer-coach") && ($("#timer-coach").textContent=this.coachMsg);
+    clearTimeout(this._endTimer);
+    this._endTimer = setTimeout(() => this.stop(), 2600);
+    if (typeof WorkoutMode !== "undefined" && WorkoutMode.active) {
+      setTimeout(() => { if (WorkoutMode.active) WorkoutMode.next(); }, 2200);
+    }
+  },
+
+  /* Descanso suelto (p. ej. tras marcar una serie manual) */
+  endRest() {
+    TimerSounds.success();
+    $("#timer-status") && ($("#timer-status").textContent="¡DESCANSO TERMINADO!");
+    $("#timer-display") && ($("#timer-display").textContent="💪");
+    $("#timer-coach") && ($("#timer-coach").textContent="¡Vamos con la siguiente serie!");
+    clearTimeout(this._endTimer);
+    this._endTimer = setTimeout(() => this.stop(), 1800);
+  },
+
+  stop(hide=true) { clearInterval(this.interval); this.interval=null; if(hide) { clearTimeout(this._endTimer); $("#floating-timer")?.classList.add("is-hidden"); } },
+
   paint() {
-    $("#timer-title").textContent=this.title; $("#timer-status").textContent=this.mode==="rest"?"DESCANSO":"EJERCICIO";
+    const multi = this.sets>1;
+    $("#timer-title").textContent = multi ? `${this.title} · Serie ${this.currentSet} de ${this.sets}` : this.title;
+    $("#timer-status").textContent = this.mode==="rest"
+      ? (multi ? `DESCANSO · VIENE SERIE ${this.currentSet+1}` : "DESCANSO")
+      : (multi ? `SERIE ${this.currentSet} · EJERCICIO` : "EJERCICIO");
     $("#timer-display").textContent=`${String(Math.floor(this.remaining/60)).padStart(2,"0")}:${String(this.remaining%60).padStart(2,"0")}`;
     $("#timer-progress-fill").style.width=`${Math.max(0,(this.remaining/this.total)*100)}%`;
     $("#btn-timer-play").textContent=this.paused?"▶️ Continuar":"⏸️ Pausa";
+    $("#timer-coach") && ($("#timer-coach").textContent=this.coachMsg||"");
   },
+
   bind() {
     $("#btn-timer-play").onclick=()=>{this.paused=!this.paused;this.paint();};
     $("#btn-timer-skip").onclick=()=>this.finish();
     $("#btn-timer-reset").onclick=()=>{this.remaining=this.total;this.paused=false;this.paint();};
     $("#btn-close-timer").onclick=()=>this.stop();
+  }
+};
+
+/* --------------------------- MODO ENTRENAMIENTO ---------------------------
+   Overlay a pantalla completa que muestra un ejercicio a la vez.
+   Mueve el contenedor #sessionExercises completo dentro del overlay para
+   conservar valores de inputs, series marcadas y listeners; al salir lo
+   devuelve a su lugar original. */
+const WorkoutMode = {
+  active: false,
+  index: 0,
+  homeParent: null,
+  homeNext: null,
+  _bound: false,
+
+  cards() { return $$(".exercise-card", $("#sessionExercises")); },
+
+  enter(startIndex = 0) {
+    const wrap = $("#sessionExercises");
+    const overlay = $("#workout-mode");
+    const body = $("#workoutBody");
+    if (!wrap || !overlay || !body) return;
+    if (!this.cards().length) {
+      toast("Sin ejercicios", "Carga una rutina para entrar al modo entrenamiento.", "warn");
+      return;
+    }
+
+    if (!this.active) {
+      this.homeParent = wrap.parentElement;
+      this.homeNext = wrap.nextSibling;
+      body.appendChild(wrap);
+      wrap.classList.add("is-workout");
+      overlay.classList.remove("is-hidden");
+      document.body.classList.add("workout-open");
+      this.active = true;
+    }
+    this.bindOnce();
+
+    const routine = State.routines.find(r => r.id === $("#sessionRoutineSelect")?.value);
+    $("#workoutRoutineName") && ($("#workoutRoutineName").textContent = routine?.name || "Entrenamiento");
+    this.go(startIndex);
+  },
+
+  exit() {
+    if (!this.active) return;
+    const wrap = $("#sessionExercises");
+    if (wrap) {
+      wrap.classList.remove("is-workout");
+      $$(".exercise-card", wrap).forEach(c => c.classList.remove("is-current"));
+      if (this.homeParent) this.homeParent.insertBefore(wrap, this.homeNext);
+    }
+    $("#workout-mode")?.classList.add("is-hidden");
+    document.body.classList.remove("workout-open");
+    this.active = false;
+  },
+
+  go(i) {
+    const cards = this.cards();
+    if (!cards.length) { this.exit(); return; }
+    this.index = clamp(i, 0, cards.length - 1);
+    cards.forEach((c, k) => c.classList.toggle("is-current", k === this.index));
+
+    $("#workoutCounter") && ($("#workoutCounter").textContent = `Ejercicio ${this.index + 1} de ${cards.length}`);
+    const fill = $("#workoutProgressFill");
+    if (fill) fill.style.width = `${((this.index + 1) / cards.length) * 100}%`;
+
+    const prev = $("#btnWorkoutPrev");
+    if (prev) prev.disabled = this.index === 0;
+    const next = $("#btnWorkoutNext");
+    if (next) {
+      const isLast = this.index === cards.length - 1;
+      next.textContent = isLast ? "✓ Finalizar" : "Siguiente ›";
+      next.classList.toggle("btn--finish", isLast);
+    }
+
+    const body = $("#workoutBody");
+    if (body) body.scrollTop = 0;
+  },
+
+  next() {
+    if (!this.active) return;
+    if (this.index >= this.cards().length - 1) this.finish();
+    else this.go(this.index + 1);
+  },
+
+  async finish() {
+    const ok = await confirmDialog({
+      title: "Terminar entrenamiento",
+      text: "¿Guardar la sesión ahora? Podrás revisar cardio y notas antes si eliges seguir editando.",
+      yesText: "Guardar sesión",
+      noText: "Seguir editando"
+    });
+    this.exit();
+    if (ok) saveSessionFromUI();
+  },
+
+  bindOnce() {
+    if (this._bound) return;
+    this._bound = true;
+    $("#btnExitWorkout")?.addEventListener("click", () => this.exit());
+    $("#btnWorkoutPrev")?.addEventListener("click", () => this.go(this.index - 1));
+    $("#btnWorkoutNext")?.addEventListener("click", () => this.next());
+    $("#btnWorkoutCardio")?.addEventListener("click", () => openCardioModal());
   }
 };
 
@@ -3084,12 +3360,19 @@ function decorateExerciseCards() {
     card.dataset.duration=duration; card.dataset.rest=rest; card.dataset.timerReady="1";
     const box=$(".exercise-card__timer-box",card); if(!box) return;
     if(duration>0) {
+      const setsCount = Math.max(1, Number(ex.sets || $$("input",card)[0]?.value || 1));
+      const copyMain = setsCount>1
+        ? `Ejercicio por tiempo · ${setsCount} series de ${duration} segundos`
+        : `Ejercicio por tiempo · ${duration} segundos`;
+      const copyHint = setsCount>1
+        ? (rest>0 ? `Descanso de ${rest} segundos entre series. El temporizador encadena todo solo.` : `El temporizador pasará solo a la siguiente serie.`)
+        : (rest>0 ? `Al terminar comenzará un descanso de ${rest} segundos.` : "Pulsa iniciar cuando estés listo.");
       box.appendChild(el("div",{class:"exercise-action exercise-action--timer"},[
         el("div",{class:"exercise-action__copy"},[
-          el("strong",{text:`Ejercicio por tiempo · ${duration} segundos`}),
-          el("span",{text:rest>0?`Al terminar comenzará un descanso de ${rest} segundos.`:"Pulsa iniciar cuando estés listo."})
+          el("strong",{text:copyMain}),
+          el("span",{text:copyHint})
         ]),
-        el("button",{class:"btn btn--primary",type:"button",text:`▶ Iniciar ejercicio`,onclick:()=>GymTimer.start(duration,{title:ex.name||card.dataset.exerciseName,rest})})
+        el("button",{class:"btn btn--primary",type:"button",text:`▶ Iniciar ejercicio`,onclick:()=>GymTimer.start(duration,{title:ex.name||card.dataset.exerciseName,rest,sets:setsCount})})
       ]));
     }
     else {
@@ -3102,7 +3385,10 @@ function decorateExerciseCards() {
           e.currentTarget.classList.contains("is-completed") ? "✓ Completada" : "Toca para completar";
         const done=$$(".btn-set-badge.is-completed",box).length;
         status.textContent=`${done} de ${sets} series completadas`;
-        if(done===sets) { TimerSounds.success(); status.textContent=`¡Ejercicio completado! ${sets} de ${sets} series`; }
+        if(done===sets) {
+          TimerSounds.success(); status.textContent=`¡Ejercicio completado! ${sets} de ${sets} series`;
+          if (WorkoutMode.active) setTimeout(() => { if (WorkoutMode.active) WorkoutMode.next(); }, 1100);
+        }
         else if(e.currentTarget.classList.contains("is-completed") && rest>0) GymTimer.start(rest,{mode:"rest",title:`${ex.name||card.dataset.exerciseName} · descanso`});
       }},[
         el("span",{class:"btn-set-badge__number",text:String(i)}),
@@ -3137,6 +3423,9 @@ collectSessionDraftFromUI = function() {
 const originalApplyDraftToSessionUI = applyDraftToSessionUI;
 applyDraftToSessionUI = function(draft) {
   State.cardioListDraft=sessionCardios(draft).map(c=>({...c})); State.cardioDraft=State.cardioListDraft[0]||null;
+  // En modo entrenamiento no reconstruimos las tarjetas: se perderían las
+  // series marcadas y la posición actual del usuario.
+  if (WorkoutMode.active) { renderCardioList(); return; }
   originalApplyDraftToSessionUI(draft); renderCardioList(); setTimeout(decorateExerciseCards);
 };
 

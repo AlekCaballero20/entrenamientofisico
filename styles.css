@@ -560,37 +560,24 @@ input, textarea, select {
   .mobile-nav .nav__icon {
     width: 36px;
     height: 36px;
-    font-size: 0;
-    position: relative;
+    font-size: 17px;
+    border-radius: 12px;
   }
 
   .mobile-nav .nav__label {
-    font-size: 11px;
+    font-size: 10px;
     line-height: 1.1;
+    font-weight: 700;
   }
 
-  .mobile-nav .nav__item:nth-child(1) .nav__icon::before,
-  .mobile-nav .nav__item:nth-child(2) .nav__icon::before,
-  .mobile-nav .nav__item:nth-child(3) .nav__icon::before,
-  .mobile-nav .nav__item:nth-child(4) .nav__icon::before,
-  .mobile-nav .nav__item:nth-child(5) .nav__icon::before,
-  .mobile-nav .nav__item:nth-child(6) .nav__icon::before,
-  .mobile-nav .nav__item:nth-child(7) .nav__icon::before {
-    position: absolute;
-    inset: 0;
-    display: grid;
-    place-items: center;
-    font-size: 15px;
-    font-weight: 800;
+  .mobile-nav .nav__item {
+    border-radius: 12px;
   }
 
-  .mobile-nav .nav__item:nth-child(1) .nav__icon::before { content: "D"; }
-  .mobile-nav .nav__item:nth-child(2) .nav__icon::before { content: "R"; }
-  .mobile-nav .nav__item:nth-child(3) .nav__icon::before { content: "S"; }
-  .mobile-nav .nav__item:nth-child(4) .nav__icon::before { content: "H"; }
-  .mobile-nav .nav__item:nth-child(5) .nav__icon::before { content: "P"; }
-  .mobile-nav .nav__item:nth-child(6) .nav__icon::before { content: "O"; }
-  .mobile-nav .nav__item:nth-child(7) .nav__icon::before { content: "A"; }
+  .mobile-nav .nav__item.is-active .nav__icon {
+    background: linear-gradient(135deg, rgba(106,167,255,.32), rgba(123,255,182,.18));
+    border-color: rgba(106,167,255,.45);
+  }
 
   .footer {
     font-size: 11px;
@@ -2056,6 +2043,16 @@ textarea.input { resize: vertical; min-height: 96px; }
   justify-content: center;
 }
 
+.floating-timer__coach {
+  margin-top: 10px;
+  min-height: 16px;
+  font-size: 12px;
+  font-style: italic;
+  font-weight: 600;
+  color: rgba(255,255,255,.72);
+  line-height: 1.3;
+}
+
 /* 2. Set Tracker en la tarjeta de ejercicio */
 .set-tracker {
   display: flex;
@@ -2410,4 +2407,319 @@ textarea.input { resize: vertical; min-height: 96px; }
   .editor-group--timing { grid-template-columns: 1fr 1fr; }
   .editor-group__intro { grid-column: 1 / -1; }
   .editor-media-fields { grid-template-columns: 1fr; }
+}
+
+/* =========================================================
+   NUEVO: RACHA (streak banner)
+========================================================= */
+.streak-banner {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 16px 20px;
+  margin-bottom: 22px;
+  border-radius: var(--radius-lg);
+  border: 1px solid color-mix(in srgb, #ff9d4d 26%, var(--line));
+  background:
+    radial-gradient(600px 200px at 0% 0%, rgba(255,157,77,.14), transparent 60%),
+    var(--panel);
+  box-shadow: var(--shadow-soft);
+  flex-wrap: wrap;
+}
+
+.streak-banner__flame {
+  font-size: 40px;
+  line-height: 1;
+  filter: grayscale(.35) opacity(.75);
+  transition: filter var(--t) var(--ease), transform var(--t) var(--ease);
+}
+
+.streak-banner__flame.is-lit {
+  filter: none;
+  animation: flamePulse 1.8s ease-in-out infinite;
+}
+
+@keyframes flamePulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.12); }
+}
+
+.streak-banner__info { min-width: 150px; }
+
+.streak-banner__value {
+  font-size: 26px;
+  font-weight: 900;
+  background: linear-gradient(135deg, #ff9d4d, #ffcc66);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  line-height: 1.1;
+}
+
+.streak-banner__unit { font-size: 15px; }
+
+.streak-banner__msg { font-size: 12px; margin-top: 4px; }
+
+.streak-banner__week {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.streak-day {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  width: 34px;
+}
+
+.streak-day__letter {
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--muted);
+}
+
+.streak-day__dot {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--chip);
+  font-size: 12px;
+  font-weight: 900;
+  color: transparent;
+  transition: background var(--t) var(--ease), border-color var(--t) var(--ease);
+}
+
+.streak-day.is-done .streak-day__dot {
+  background: linear-gradient(135deg, #ff9d4d, #ffcc66);
+  border-color: transparent;
+  color: #3a2308;
+}
+
+.streak-day.is-today .streak-day__dot {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.streak-banner__best {
+  text-align: center;
+  padding: 8px 16px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: var(--panel2);
+}
+
+.streak-banner__best-value { font-size: 20px; font-weight: 900; }
+.streak-banner__best-label { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
+
+@media (max-width: 700px) {
+  .streak-banner { gap: 12px; padding: 14px; }
+  .streak-banner__week { margin-left: 0; width: 100%; justify-content: space-between; }
+  .streak-banner__best { margin-left: auto; }
+  .streak-day { width: auto; flex: 1 1 auto; }
+}
+
+/* =========================================================
+   NUEVO: SECCIÓN CARDIO (configurar sesión)
+========================================================= */
+.cardio-section {
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, #ff5b70 22%, var(--line));
+  background:
+    radial-gradient(400px 140px at 100% 0%, rgba(255,91,112,.08), transparent 60%),
+    rgba(255,255,255,.02);
+}
+
+.cardio-section__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.cardio-section__title {
+  font-weight: 800;
+  font-size: 14px;
+}
+
+.cardio-section__hint { font-size: 11px; margin-top: 2px; }
+
+.session-cardio-list {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.session-cardio-list > .muted { font-size: 13px; padding: 4px 0; }
+
+/* =========================================================
+   NUEVO: MODO ENTRENAMIENTO (overlay a pantalla completa)
+========================================================= */
+.workout-mode {
+  position: fixed;
+  inset: 0;
+  z-index: 75; /* debajo de modales (80) y timer flotante (1000) */
+  display: flex;
+  flex-direction: column;
+  background:
+    radial-gradient(900px 600px at 10% -10%, var(--grad-a), transparent 55%),
+    radial-gradient(900px 600px at 90% 100%, var(--grad-b), transparent 55%),
+    var(--bg);
+  color: var(--text);
+  animation: fadeIn var(--t) var(--ease) both;
+}
+
+.workout-mode.is-hidden { display: none !important; }
+
+body.workout-open { overflow: hidden; }
+
+.workout-mode__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px 10px;
+  padding-top: calc(14px + env(safe-area-inset-top, 0px));
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.02));
+  backdrop-filter: blur(var(--blur));
+  -webkit-backdrop-filter: blur(var(--blur));
+}
+
+.workout-mode__titles {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: center;
+}
+
+.workout-mode__routine {
+  font-weight: 900;
+  font-size: 15px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.workout-mode__counter { font-size: 12px; margin-top: 2px; }
+
+.workout-mode__cardio {
+  border-color: rgba(255,91,112,.35);
+  background: rgba(255,91,112,.10);
+}
+
+.workout-mode__progress {
+  height: 5px;
+  background: var(--line);
+}
+
+.workout-mode__progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  transition: width var(--t-slow) var(--ease);
+}
+
+.workout-mode__body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 18px 16px 24px;
+  display: grid;
+  align-content: start;
+}
+
+.workout-mode__foot {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr;
+  gap: 12px;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--line);
+  background: linear-gradient(0deg, rgba(255,255,255,.05), rgba(255,255,255,.02));
+  backdrop-filter: blur(var(--blur));
+  -webkit-backdrop-filter: blur(var(--blur));
+}
+
+.workout-mode__nav-btn {
+  min-height: 54px;
+  justify-content: center;
+  font-size: 15px;
+  font-weight: 800;
+  border-radius: 16px;
+}
+
+.workout-mode__nav-btn:disabled {
+  opacity: .4;
+  pointer-events: none;
+}
+
+.workout-mode__nav-btn.btn--finish {
+  background: linear-gradient(135deg, rgba(123,255,182,.35), rgba(106,167,255,.22));
+  border-color: rgba(123,255,182,.5);
+}
+
+/* Dentro del modo entrenamiento: solo se muestra el ejercicio actual */
+.session-exercises.is-workout {
+  gap: 0;
+}
+
+.session-exercises.is-workout .exercise-card { display: none; }
+
+.session-exercises.is-workout .exercise-card.is-current {
+  display: block;
+  max-width: 640px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 20px 18px;
+  border-radius: 22px;
+  background: var(--panel);
+  box-shadow: var(--shadow-soft);
+  animation: fadeIn var(--t) var(--ease) both;
+}
+
+.session-exercises.is-workout .exercise-card.is-current .exercise-card__name {
+  font-size: 22px;
+  line-height: 1.2;
+}
+
+.session-exercises.is-workout .exercise-card.is-current .exercise-card__hint {
+  font-size: 13px;
+}
+
+/* Inputs y botones más grandes para dedos, no para cursores */
+.session-exercises.is-workout .exercise-card.is-current .input--sm {
+  min-height: 48px;
+  font-size: 16px; /* evita zoom automático de iOS */
+}
+
+.session-exercises.is-workout .exercise-card.is-current .btn-set-badge {
+  min-height: 60px;
+  flex: 1 1 45%;
+}
+
+.session-exercises.is-workout .exercise-card.is-current .exercise-media__image {
+  width: 100%;
+  max-width: 320px;
+  height: auto;
+  aspect-ratio: 16 / 10;
+}
+
+/* =========================================================
+   POLISH GENERAL
+========================================================= */
+/* Botones y campos cómodos al tacto en móvil */
+@media (max-width: 700px) {
+  .btn { min-height: 46px; }
+  .input { min-height: 46px; font-size: 16px; }
+  .btn-set-badge { flex: 1 1 45%; }
+}
+
+/* El botón de guardar sesión resalta como acción principal */
+#btnSaveSession {
+  background: linear-gradient(135deg, rgba(123,255,182,.30), rgba(106,167,255,.20));
+  border-color: rgba(123,255,182,.42);
 }
