@@ -3045,3 +3045,97 @@ body.workout-open { overflow: hidden; }
 @media (max-width: 820px) {
   #modalProgression .grid--2 { grid-template-columns: 1fr; }
 }
+
+/* =========================================================
+   REPRODUCTOR DE MÚSICA
+========================================================= */
+.music-player {
+  position: fixed;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  width: min(560px, calc(100vw - 20px));
+  z-index: 1001; /* por encima del modo entrenamiento */
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: rgba(18, 22, 34, .92);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: var(--shadow-2);
+  overflow: hidden;
+}
+.app[data-theme="light"] .music-player { background: rgba(255,255,255,.96); }
+.music-player.is-hidden { display: none; }
+
+.music-player__progress {
+  height: 5px;
+  background: rgba(255,255,255,.10);
+  cursor: pointer;
+}
+.music-player__fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  transition: width .2s linear;
+}
+
+.music-player__bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+}
+
+.music-player__play {
+  font-size: 18px;
+  flex: 0 0 auto;
+}
+
+.music-player__meta {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.music-player__title {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--text);
+  font-weight: 800;
+  font-size: 13px;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.music-player__title:hover { color: var(--accent); }
+.music-player__time { font-size: 11px; }
+
+.music-player.is-playing .music-player__title { color: var(--accent2, #7bffb6); }
+
+.music-player__volume {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 1 110px;
+}
+.music-player__volume input {
+  width: 100%;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.music-player .icon-btn.is-active {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+@media (max-width: 640px) {
+  .music-player { bottom: 78px; } /* deja libre la barra inferior */
+  .music-player__volume { display: none; }
+  .music-player__bar { gap: 4px; }
+}
+
+body.workout-open .music-player { bottom: 84px; }

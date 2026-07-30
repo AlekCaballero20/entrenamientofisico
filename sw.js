@@ -16,7 +16,7 @@
 
 'use strict';
 
-const SW_VERSION = 'gymos-v1.8.0-progression'; // súbelo cuando hagas cambios
+const SW_VERSION = 'gymos-v1.9.0-music'; // súbelo cuando hagas cambios
 const PREFIX = 'gymos';
 const CACHE_APP = `${PREFIX}-app-${SW_VERSION}`;
 const CACHE_RUNTIME = `${PREFIX}-runtime-${SW_VERSION}`;
@@ -63,6 +63,12 @@ function isAppShellRequest(req) {
     p.endsWith('/manifest.webmanifest') ||
     p.includes('/icons/')
   );
+}
+
+function isAudioRequest(req, url) {
+  if (req.destination === 'audio') return true;
+  if (req.headers && req.headers.has('range')) return true;
+  return /\.(mp3|m4a|ogg|wav)$/i.test(url.pathname) || url.pathname.includes('/music/');
 }
 
 async function safeCachePut(cache, req, res) {
@@ -203,6 +209,10 @@ self.addEventListener('fetch', (event) => {
 
   // No tocamos cross-origin (CDNs, fonts, etc.)
   if (!sameOrigin(url)) return;
+
+  // Audio: lo sirve el navegador directo. Los mp3 usan peticiones por rango
+  // (respuestas 206) que no se pueden cachear bien, y son archivos pesados.
+  if (isAudioRequest(req, url)) return;
 
   // Navegación: sirve index.html desde cache (y lo revalida)
   if (isNavigation(req)) {

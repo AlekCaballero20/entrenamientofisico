@@ -24,7 +24,7 @@
 /* ---------------------------
    CONSTANTS / KEYS
 --------------------------- */
-const APP_VERSION = "0.8.0-progression";
+const APP_VERSION = "0.9.0-music";
 
 // Cache interna por usuario: no es un modo local de trabajo, solo evita perder
 // estado temporal mientras Firestore termina de responder.
@@ -53,8 +53,20 @@ const DEFAULT_PREFS = {
   theme: "light",     // light | system (evitamos dark por defecto)
   unit: "lbs",        // lbs | kg
   autosave: "on",     // on | off
-  dateFmt: "es-CO"    // es-CO | iso
+  dateFmt: "es-CO",   // es-CO | iso
+  music: "ask",       // ask | always | never (al entrar al modo entrenamiento)
+  musicVolume: 60,    // 0-100
+  musicShuffle: true
 };
+
+/* Pistas incluidas en la app (carpeta ./music). */
+const MUSIC_TRACKS = [
+  { title: "GymOS Boot",     src: "./music/GymOS Boot.mp3" },
+  { title: "Pulse On",       src: "./music/Pulse On.mp3" },
+  { title: "Iron Set Pulse", src: "./music/Iron Set Pulse.mp3" },
+  { title: "Pulse Circuit",  src: "./music/Pulse Circuit.mp3" },
+  { title: "Steel Circuit",  src: "./music/Steel Circuit.mp3" }
+];
 
 /* ---------------------------
    AUTH STATE
@@ -1119,6 +1131,8 @@ function applyTheme() {
   const prefUnit = $("#prefUnit"); if (prefUnit) prefUnit.value = State.prefs.unit;
   const prefAutosave = $("#prefAutosave"); if (prefAutosave) prefAutosave.value = State.prefs.autosave;
   const prefDateFmt = $("#prefDateFmt"); if (prefDateFmt) prefDateFmt.value = State.prefs.dateFmt;
+  const prefMusic = $("#prefMusic"); if (prefMusic) prefMusic.value = State.prefs.music || "ask";
+  const prefMusicVolume = $("#prefMusicVolume"); if (prefMusicVolume) prefMusicVolume.value = State.prefs.musicVolume ?? 60;
 }
 
 function bindPrefsUIOnce() {
@@ -1137,6 +1151,10 @@ function bindPrefsUIOnce() {
     State.prefs.unit = $("#prefUnit")?.value || State.prefs.unit;
     State.prefs.autosave = $("#prefAutosave")?.value || State.prefs.autosave;
     State.prefs.dateFmt = $("#prefDateFmt")?.value || State.prefs.dateFmt;
+    State.prefs.music = $("#prefMusic")?.value || State.prefs.music;
+    const vol = $("#prefMusicVolume")?.value;
+    if (vol != null && vol !== "") State.prefs.musicVolume = clamp(Number(vol), 0, 100);
+    if (MusicPlayer.audio) MusicPlayer.audio.volume = (State.prefs.musicVolume ?? 60) / 100;
     savePrefs();
     applyTheme();
     toast("Preferencias guardadas", "Listo. El universo no colapsó.", "ok");
@@ -4248,6 +4266,206 @@ const GymTimer = {
   }
 };
 
+/* --------------------------- MÚSICA ---------------------------
+   Reproductor propio con las pistas de ./music. Se ofrece al entrar al modo
+   entrenamiento (según preferencia) y se puede controlar en cualquier momento
+   desde la barra flotante. La reproducción siempre arranca por un gesto del
+   usuario, así los navegadores no la bloquean. */
+const MusicPlayer = {
+  audio: null,
+  order: [],        // índices de MUSIC_TRACKS en el orden de reproducción
+  pos: 0,           // posición dentro de `order`
+  asked: false,     // ya se preguntó en esta sesión de entrenamiento
+  _bound: false,
+
+  get track() { return MUSIC_TRACKS[this.order[this.pos]] || null; },
+
+  init() {
+    if (this.audio) return;
+    this.audio = new Audio();
+    this.audio.preload = "none";
+    this.audio.volume = clamp(Number(State.prefs.musicVolume ?? 60), 0, 100) / 100;
+    this.buildOrder();
+    this.audio.addEventListener("ended", () => this.next(true));
+    this.audio.addEventListener("timeupdate", () => this.paintProgress());
+    this.audio.addEventListener("loadedmetadata", () => this.paintProgress());
+    this.audio.addEventListener("play", () => this.paint());
+    this.audio.addEventListener("pause", () => this.paint());
+    this.audio.addEventListener("error", () => {
+      toast("No se pudo reproducir", this.track?.title || "Pista no encontrada", "warn");
+    });
+    this.bindUI();
+  },
+
+  buildOrder() {
+    const idx = MUSIC_TRACKS.map((_, i) => i);
+    if (State.prefs.musicShuffle) {
+      for (let i = idx.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [idx[i], idx[j]] = [idx[j], idx[i]];
+      }
+    }
+    this.order = idx;
+    this.pos = 0;
+  },
+
+  show() { $("#music-player")?.classList.remove("is-hidden"); this.paint(); },
+  hide() { $("#music-player")?.classList.add("is-hidden"); },
+
+  load(pos, autoplay=true) {
+    this.init();
+    if (!MUSIC_TRACKS.length) return;
+    this.pos = ((pos % this.order.length) + this.order.length) % this.order.length;
+    this.audio.src = encodeURI(this.track.src);
+    this.show();
+    if (autoplay) this.play();
+    else this.paint();
+  },
+
+  play() {
+    this.init();
+    if (!this.audio.src) { this.load(this.pos, true); return; }
+    this.audio.play().catch(() => {
+      toast("Música en pausa", "Toca ▶️ para iniciar la reproducción.", "warn");
+    });
+    this.show();
+  },
+
+  pause() { this.audio?.pause(); },
+
+  toggle() {
+    this.init();
+    if (!this.audio.src) { this.load(this.pos, true); return; }
+    if (this.audio.paused) this.play(); else this.pause();
+  },
+
+  next(auto=false) { this.init(); this.load(this.pos + 1, auto || !this.audio.paused); },
+  prev() {
+    this.init();
+    // Si ya avanzó más de 3s, reinicia la pista actual (como cualquier reproductor).
+    if (this.audio.currentTime > 3) { this.audio.currentTime = 0; return; }
+    this.load(this.pos - 1, !this.audio.paused);
+  },
+
+  stop() {
+    if (!this.audio) return;
+    this.audio.pause();
+    this.audio.currentTime = 0;
+  },
+
+  setVolume(v) {
+    this.init();
+    const vol = clamp(Number(v || 0), 0, 100);
+    this.audio.volume = vol / 100;
+    State.prefs.musicVolume = vol;
+    savePrefs();
+    const slider = $("#musicVolume"); if (slider && Number(slider.value) !== vol) slider.value = vol;
+    const pref = $("#prefMusicVolume"); if (pref && Number(pref.value) !== vol) pref.value = vol;
+  },
+
+  toggleShuffle() {
+    State.prefs.musicShuffle = !State.prefs.musicShuffle;
+    savePrefs();
+    const playing = this.track;
+    this.buildOrder();
+    // Mantener sonando la pista actual tras reordenar.
+    if (playing) {
+      const at = this.order.indexOf(MUSIC_TRACKS.indexOf(playing));
+      if (at >= 0) this.pos = at;
+    }
+    this.paint();
+    toast("Orden de pistas", State.prefs.musicShuffle ? "Aleatorio activado." : "Orden fijo.", "ok");
+  },
+
+  paint() {
+    const bar = $("#music-player");
+    if (!bar) return;
+    const playing = this.audio && !this.audio.paused && this.audio.src;
+    $("#btnMusicToggle") && ($("#btnMusicToggle").textContent = playing ? "⏸️" : "▶️");
+    $("#btnMusicTrack") && ($("#btnMusicTrack").textContent = `🎵 ${this.track?.title || "Sin música"}`);
+    $("#btnMusicShuffle")?.classList.toggle("is-active", !!State.prefs.musicShuffle);
+    const slider = $("#musicVolume");
+    if (slider) slider.value = Math.round((this.audio?.volume ?? 0.6) * 100);
+    bar.classList.toggle("is-playing", !!playing);
+  },
+
+  paintProgress() {
+    const a = this.audio;
+    if (!a) return;
+    const fmt = s => `${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,"0")}`;
+    const dur = isFinite(a.duration) ? a.duration : 0;
+    $("#musicTime") && ($("#musicTime").textContent = `${fmt(a.currentTime||0)} / ${dur ? fmt(dur) : "--:--"}`);
+    const fill = $("#musicProgressFill");
+    if (fill) fill.style.width = dur ? `${(a.currentTime / dur) * 100}%` : "0%";
+  },
+
+  bindUI() {
+    if (this._bound) return;
+    this._bound = true;
+    $("#btnMusicToggle")?.addEventListener("click", () => this.toggle());
+    $("#btnMusicNext")?.addEventListener("click", () => this.next());
+    $("#btnMusicPrev")?.addEventListener("click", () => this.prev());
+    $("#btnMusicShuffle")?.addEventListener("click", () => this.toggleShuffle());
+    $("#btnMusicClose")?.addEventListener("click", () => { this.stop(); this.hide(); });
+    $("#musicVolume")?.addEventListener("input", e => this.setVolume(e.target.value));
+    $("#btnMusicTrack")?.addEventListener("click", () => this.openTrackPicker());
+    $("#music-player .music-player__progress")?.addEventListener("click", e => {
+      const a = this.audio;
+      if (!a || !isFinite(a.duration)) return;
+      const box = e.currentTarget.getBoundingClientRect();
+      a.currentTime = ((e.clientX - box.left) / box.width) * a.duration;
+    });
+  },
+
+  openTrackPicker() {
+    this.init();
+    openPicker({
+      title: "🎵 Elegir pista",
+      subtitle: "Música incluida en GymOS.",
+      searchPlaceholder: "Buscar pista…",
+      renderList: (list, q) => {
+        list.innerHTML = "";
+        MUSIC_TRACKS.forEach((t, i) => {
+          if (q && !t.title.toLowerCase().includes(q)) return;
+          const isCurrent = this.track && this.track.src === t.src;
+          const item = el("button", { class:`picker-item${isCurrent ? " is-selected" : ""}`, type:"button" }, [
+            el("span", { class:"picker-item__copy" }, [
+              el("strong", { text: t.title }),
+              el("span", { class:"muted", text: isCurrent ? "Sonando ahora" : "Toca para reproducir" })
+            ]),
+            el("span", { class:"picker-item__check", text:"▶" })
+          ]);
+          item.onclick = () => {
+            closePicker();
+            const at = this.order.indexOf(i);
+            this.load(at >= 0 ? at : 0, true);
+          };
+          list.appendChild(item);
+        });
+      }
+    });
+  },
+
+  /* Se llama al entrar al modo entrenamiento. */
+  async offerOnWorkoutStart() {
+    const mode = State.prefs.music || "ask";
+    if (mode === "never" || !MUSIC_TRACKS.length) return;
+    this.init();
+
+    if (mode === "always") { this.load(this.pos, true); return; }
+    if (this.asked) return;
+    this.asked = true;
+
+    const ok = await confirmDialog({
+      title: "🎵 ¿Ponemos música?",
+      text: `Tenemos ${MUSIC_TRACKS.length} pistas para entrenar. Puedes pausarla o cambiarla cuando quieras desde la barra del reproductor.`,
+      yesText: "Sí, dale música",
+      noText: "Entrenar en silencio"
+    });
+    if (ok) this.load(this.pos, true);
+  }
+};
+
 /* --------------------------- MODO ENTRENAMIENTO ---------------------------
    Overlay a pantalla completa que muestra un ejercicio a la vez.
    Mueve el contenedor #sessionExercises completo dentro del overlay para
@@ -4286,6 +4504,9 @@ const WorkoutMode = {
     const routine = State.routines.find(r => r.id === $("#sessionRoutineSelect")?.value);
     $("#workoutRoutineName") && ($("#workoutRoutineName").textContent = routine?.name || "Entrenamiento");
     this.go(startIndex);
+
+    // Música: se ofrece (o arranca sola) al iniciar el entrenamiento.
+    MusicPlayer.offerOnWorkoutStart();
   },
 
   exit() {
@@ -4299,6 +4520,16 @@ const WorkoutMode = {
     $("#workout-mode")?.classList.add("is-hidden");
     document.body.classList.remove("workout-open");
     this.active = false;
+    this.askedMusicReset();
+  },
+
+  // Al salir se para la música y se vuelve a preguntar en el próximo entrenamiento.
+  askedMusicReset() {
+    MusicPlayer.asked = false;
+    if (MusicPlayer.audio && !MusicPlayer.audio.paused) {
+      MusicPlayer.stop();
+      MusicPlayer.hide();
+    }
   },
 
   go(i) {
@@ -4348,6 +4579,12 @@ const WorkoutMode = {
     $("#btnWorkoutPrev")?.addEventListener("click", () => this.go(this.index - 1));
     $("#btnWorkoutNext")?.addEventListener("click", () => this.next());
     $("#btnWorkoutCardio")?.addEventListener("click", () => openCardioModal());
+    $("#btnWorkoutMusic")?.addEventListener("click", () => {
+      MusicPlayer.init();
+      // Si nunca sonó, arranca; si ya hay pista, muestra el reproductor y alterna.
+      if (!MusicPlayer.audio.src) MusicPlayer.load(MusicPlayer.pos, true);
+      else { MusicPlayer.show(); MusicPlayer.toggle(); }
+    });
   }
 };
 

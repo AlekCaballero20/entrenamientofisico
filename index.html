@@ -841,6 +841,20 @@
                 </label>
 
                 <label class="field">
+                  <span class="field__label">Música al entrenar</span>
+                  <select id="prefMusic" class="input">
+                    <option value="ask">Preguntar al iniciar</option>
+                    <option value="always">Poner música siempre</option>
+                    <option value="never">Nunca</option>
+                  </select>
+                </label>
+
+                <label class="field">
+                  <span class="field__label">Volumen de la música</span>
+                  <input id="prefMusicVolume" class="input" type="range" min="0" max="100" step="1" />
+                </label>
+
+                <label class="field">
                   <span class="field__label">Formato de fecha</span>
                   <select id="prefDateFmt" class="input">
                     <option value="es-CO">es-CO (Colombia)</option>
@@ -1426,6 +1440,9 @@
           <div class="workout-mode__routine" id="workoutRoutineName">Entrenamiento</div>
           <div class="workout-mode__counter muted" id="workoutCounter">Ejercicio 1 de 1</div>
         </div>
+        <button id="btnWorkoutMusic" class="icon-btn workout-mode__music" type="button" aria-label="Música" title="Música">
+          <span class="icon" aria-hidden="true">🎵</span>
+        </button>
         <button id="btnWorkoutCardio" class="icon-btn workout-mode__cardio" type="button" aria-label="Agregar cardio" title="Agregar cardio">
           <span class="icon" aria-hidden="true">❤️</span>
         </button>
@@ -1445,6 +1462,28 @@
           Siguiente <span class="icon" aria-hidden="true">›</span>
         </button>
       </footer>
+    </div>
+
+    <!-- WIDGET: Reproductor de música -->
+    <div id="music-player" class="music-player is-hidden" aria-label="Reproductor de música">
+      <div class="music-player__progress" aria-hidden="true">
+        <div id="musicProgressFill" class="music-player__fill"></div>
+      </div>
+      <div class="music-player__bar">
+        <button id="btnMusicToggle" class="icon-btn music-player__play" type="button" aria-label="Reproducir o pausar">▶️</button>
+        <div class="music-player__meta">
+          <button id="btnMusicTrack" class="music-player__title" type="button" title="Elegir pista">🎵 Sin música</button>
+          <span id="musicTime" class="music-player__time muted">0:00 / 0:00</span>
+        </div>
+        <button id="btnMusicPrev" class="icon-btn" type="button" aria-label="Pista anterior">⏮️</button>
+        <button id="btnMusicNext" class="icon-btn" type="button" aria-label="Pista siguiente">⏭️</button>
+        <button id="btnMusicShuffle" class="icon-btn" type="button" aria-label="Orden aleatorio" title="Orden aleatorio">🔀</button>
+        <label class="music-player__volume">
+          <span aria-hidden="true">🔊</span>
+          <input id="musicVolume" type="range" min="0" max="100" step="1" aria-label="Volumen de la música" />
+        </label>
+        <button id="btnMusicClose" class="icon-btn" type="button" aria-label="Cerrar reproductor">✕</button>
+      </div>
     </div>
 
     <!-- WIDGET: Temporizador Flotante -->
