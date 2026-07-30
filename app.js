@@ -24,7 +24,7 @@
 /* ---------------------------
    CONSTANTS / KEYS
 --------------------------- */
-const APP_VERSION = "0.7.0-reuse";
+const APP_VERSION = "0.8.0-progression";
 
 // Cache interna por usuario: no es un modo local de trabajo, solo evita perder
 // estado temporal mientras Firestore termina de responder.
@@ -1294,6 +1294,8 @@ function duplicateProgram(id) {
   if (!p) return null;
   const now = Date.now();
   const copy = { id: uid("program"), name: `${p.name} (copia)`, createdAt: now, updatedAt: now };
+  // La copia hereda la configuración de progresión pero arranca en ciclo 1.
+  if (p.progression) copy.progression = { ...programProgression(p), cycle: 1, cycleStart: now, history: [] };
   State.programs.push(copy);
 
   State.routines
@@ -1835,6 +1837,344 @@ function renderFocusExerciseBox() {
 }
 
 /* ---------------------------
+   PROGRESIÓN AUTOMÁTICA (sobrecarga progresiva)
+   Cada programa puede subir solo su carga al cerrar un ciclo: un ciclo se
+   completa cuando entrenaste al menos una vez cada rutina del programa desde
+   que arrancó. Al cerrarlo, GymOS propone el aumento y tú confirmas.
+--------------------------- */
+const DEFAULT_PROGRESSION = {
+  enabled: false,
+  weightAmount: 2.5,   // cuánto sube el peso
+  weightMode: "abs",   // "abs" = unidades fijas | "pct" = porcentaje
+  weightMax: 0,        // tope por ejercicio (0 = sin tope)
+  seconds: 5,          // segundos extra en ejercicios por tiempo
+  minutes: 0,          // minutos extra al objetivo de la rutina
+  reps: 0,             // reps extra en ejercicios sin peso
+  cycle: 1,
+  cycleStart: 0,
+  history: []
+};
+
+function programProgression(program) {
+  const raw = program?.progression || {};
+  return {
+    ...DEFAULT_PROGRESSION,
+    ...raw,
+    enabled: !!raw.enabled,
+    weightAmount: Math.max(0, Number(raw.weightAmount ?? DEFAULT_PROGRESSION.weightAmount)),
+    weightMode: raw.weightMode === "pct" ? "pct" : "abs",
+    weightMax: Math.max(0, Number(raw.weightMax || 0)),
+    seconds: Math.max(0, Number(raw.seconds ?? DEFAULT_PROGRESSION.seconds)),
+    minutes: Math.max(0, Number(raw.minutes || 0)),
+    reps: Math.max(0, Number(raw.reps || 0)),
+    cycle: Math.max(1, Number(raw.cycle || 1)),
+    cycleStart: Number(raw.cycleStart || 0),
+    history: Array.isArray(raw.history) ? raw.history : []
+  };
+}
+
+function saveProgression(programId, patch) {
+  const p = State.programs.find(x => x.id === programId);
+  if (!p) return null;
+  p.progression = { ...programProgression(p), ...patch };
+  p.updatedAt = Date.now();
+  savePrograms();
+  return p.progression;
+}
+
+function routinesInProgram(programId) {
+  return State.routines.filter(r => r.programId === programId);
+}
+
+/* Estado del ciclo actual: qué rutinas ya entrenaste desde que arrancó. */
+function cycleStatus(program) {
+  const cfg = programProgression(program);
+  const routines = routinesInProgram(program.id);
+  const since = cfg.cycleStart || program.createdAt || 0;
+  const trained = new Set(
+    State.sessions
+      .filter(s => Number(s.createdAt || 0) >= since)
+      .map(s => s.routineId)
+  );
+  const pending = routines.filter(r => !trained.has(r.id));
+  return {
+    total: routines.length,
+    done: routines.length - pending.length,
+    pending,
+    complete: routines.length > 0 && pending.length === 0
+  };
+}
+
+function roundHalf(n) { return Math.round(n * 2) / 2; }
+
+/* Fecha local (no UTC) de un timestamp, en formato YYYY-MM-DD. */
+function localISODate(ts) {
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+}
+
+/* Calcula (sin aplicar) todos los cambios del próximo aumento. */
+function planProgression(program) {
+  const cfg = programProgression(program);
+  const changes = [];
+
+  routinesInProgram(program.id).forEach(r => {
+    if (cfg.minutes > 0 && Number(r.targetMin || 0) > 0) {
+      changes.push({
+        routineId: r.id, routineName: r.name, exIndex: -1, exName: "",
+        field: "targetMin", from: Number(r.targetMin), to: Number(r.targetMin) + cfg.minutes
+      });
+    }
+
+    (r.exercises || []).forEach((ex, i) => {
+      const weight = Number(ex.weight || 0);
+      const duration = Number(ex.duration || 0);
+
+      if (weight > 0 && cfg.weightAmount > 0) {
+        let next = cfg.weightMode === "pct"
+          ? roundHalf(weight * (1 + cfg.weightAmount / 100))
+          : roundHalf(weight + cfg.weightAmount);
+        if (cfg.weightMax > 0) next = Math.min(next, cfg.weightMax);
+        if (next > weight) {
+          changes.push({ routineId:r.id, routineName:r.name, exIndex:i, exName:ex.name, field:"weight", from:weight, to:next });
+        }
+      }
+
+      if (duration > 0 && cfg.seconds > 0) {
+        changes.push({ routineId:r.id, routineName:r.name, exIndex:i, exName:ex.name, field:"duration", from:duration, to:duration + cfg.seconds });
+      }
+
+      // Sin peso ni tiempo → progresa por repeticiones.
+      if (weight === 0 && duration === 0 && cfg.reps > 0 && /\d/.test(String(ex.reps || ""))) {
+        const from = String(ex.reps);
+        const to = from.replace(/\d+/g, n => String(Number(n) + cfg.reps));
+        if (to !== from) {
+          changes.push({ routineId:r.id, routineName:r.name, exIndex:i, exName:ex.name, field:"reps", from, to });
+        }
+      }
+    });
+  });
+
+  return changes;
+}
+
+function progressionSummary(changes) {
+  const by = { weight:0, duration:0, reps:0, targetMin:0 };
+  changes.forEach(c => { by[c.field] = (by[c.field] || 0) + 1; });
+  const parts = [];
+  if (by.weight) parts.push(`${by.weight} ejercicio(s) suben de peso`);
+  if (by.duration) parts.push(`${by.duration} suben segundos`);
+  if (by.reps) parts.push(`${by.reps} suben repeticiones`);
+  if (by.targetMin) parts.push(`${by.targetMin} rutina(s) suben minutos objetivo`);
+  return parts.join(" · ") || "Sin cambios que aplicar";
+}
+
+function applyProgression(program, changes) {
+  if (!changes.length) return 0;
+
+  changes.forEach(c => {
+    const r = State.routines.find(x => x.id === c.routineId);
+    if (!r) return;
+    if (c.field === "targetMin") { r.targetMin = c.to; r.updatedAt = Date.now(); return; }
+    const ex = (r.exercises || [])[c.exIndex];
+    if (!ex || ex.name !== c.exName) return; // la rutina cambió: no tocar
+    ex[c.field] = c.to;
+    r.updatedAt = Date.now();
+  });
+
+  const cfg = programProgression(program);
+  saveProgression(program.id, {
+    cycle: cfg.cycle + 1,
+    cycleStart: Date.now(),
+    history: [{ at: Date.now(), cycle: cfg.cycle, changes }, ...cfg.history].slice(0, 20)
+  });
+  saveRoutines();
+  return changes.length;
+}
+
+function undoLastProgression(program) {
+  const cfg = programProgression(program);
+  const last = cfg.history[0];
+  if (!last) return false;
+
+  last.changes.forEach(c => {
+    const r = State.routines.find(x => x.id === c.routineId);
+    if (!r) return;
+    if (c.field === "targetMin") { r.targetMin = c.from; r.updatedAt = Date.now(); return; }
+    const ex = (r.exercises || [])[c.exIndex];
+    if (!ex || ex.name !== c.exName) return;
+    ex[c.field] = c.from;
+    r.updatedAt = Date.now();
+  });
+
+  saveProgression(program.id, {
+    cycle: Math.max(1, cfg.cycle - 1),
+    cycleStart: last.at,
+    history: cfg.history.slice(1)
+  });
+  saveRoutines();
+  return true;
+}
+
+/* Se llama al guardar una sesión: si el ciclo se cerró, propone el aumento. */
+async function maybeOfferProgression(session) {
+  const routine = State.routines.find(r => r.id === session?.routineId);
+  const program = State.programs.find(p => p.id === routine?.programId);
+  if (!program) return;
+
+  const cfg = programProgression(program);
+  if (!cfg.enabled) return;
+  if (!cfg.cycleStart) { saveProgression(program.id, { cycleStart: Date.now() }); return; }
+
+  const status = cycleStatus(program);
+  if (!status.complete) return;
+
+  const changes = planProgression(program);
+  if (!changes.length) {
+    saveProgression(program.id, { cycle: cfg.cycle + 1, cycleStart: Date.now() });
+    return;
+  }
+
+  const ok = await confirmDialog({
+    title: `🎉 ¡Ciclo ${cfg.cycle} completo!`,
+    text: `Entrenaste las ${status.total} rutina(s) de "${program.name}". ¿Subimos la carga? ${progressionSummary(changes)}.`,
+    yesText: "Aplicar aumento",
+    noText: "Ahora no"
+  });
+
+  if (!ok) {
+    // Se pospone: arranca un ciclo nuevo sin subir nada.
+    saveProgression(program.id, { cycleStart: Date.now() });
+    toast("Progresión pospuesta", "Seguimos con la misma carga este ciclo.", "ok");
+    return;
+  }
+
+  const n = applyProgression(program, changes);
+  toast(`¡Nivel ${cfg.cycle + 1}! 📈`, `${n} ajuste(s) aplicados en ${program.name}.`, "ok");
+}
+
+/* --------------------------- MODAL DE PROGRESIÓN --------------------------- */
+function openProgressionModal(program) {
+  const m = $("#modalProgression");
+  if (!m) return;
+
+  const cfg = programProgression(program);
+  $("#modalProgressionTitle").textContent = `📈 Progresión · ${program.name}`;
+  $("#progEnabled").checked = cfg.enabled;
+  $("#progWeightAmount").value = cfg.weightAmount;
+  $("#progWeightMode").value = cfg.weightMode;
+  $("#progWeightMax").value = cfg.weightMax || "";
+  $("#progSeconds").value = cfg.seconds;
+  $("#progReps").value = cfg.reps;
+  $("#progMinutes").value = cfg.minutes;
+
+  const readForm = () => ({
+    enabled: $("#progEnabled").checked,
+    weightAmount: Math.max(0, Number($("#progWeightAmount").value || 0)),
+    weightMode: $("#progWeightMode").value === "pct" ? "pct" : "abs",
+    weightMax: Math.max(0, Number($("#progWeightMax").value || 0)),
+    seconds: Math.max(0, Number($("#progSeconds").value || 0)),
+    reps: Math.max(0, Number($("#progReps").value || 0)),
+    minutes: Math.max(0, Number($("#progMinutes").value || 0))
+  });
+
+  const paint = () => {
+    const current = State.programs.find(p => p.id === program.id) || program;
+    const live = programProgression(current);
+    const status = cycleStatus(current);
+
+    const cycleBox = $("#progressionCycle");
+    cycleBox.innerHTML = "";
+    cycleBox.appendChild(el("div", { class:"progression-cycle__level" }, [
+      el("strong", { text:`Ciclo ${live.cycle}` }),
+      el("span", { class:"muted", text: status.total
+        ? `${status.done} de ${status.total} rutina(s) entrenadas en este ciclo`
+        : "Este programa aún no tiene rutinas." })
+    ]));
+    if (status.pending.length) {
+      cycleBox.appendChild(el("div", { class:"muted", text:`Faltan: ${status.pending.map(r => r.name).join(", ")}` }));
+    } else if (status.total) {
+      cycleBox.appendChild(el("div", { class:"muted", text:"¡Ciclo listo! Se propondrá el aumento al guardar la próxima sesión." }));
+    }
+
+    // Vista previa con los valores del formulario, sin guardar todavía.
+    const preview = $("#progressionPreview");
+    preview.innerHTML = "";
+    const simulated = { ...current, progression: { ...live, ...readForm() } };
+    const changes = planProgression(simulated);
+    if (!changes.length) {
+      preview.appendChild(el("div", { class:"muted", text:"Con esta configuración no cambiaría nada todavía." }));
+    } else {
+      preview.appendChild(el("div", { class:"muted", text: progressionSummary(changes) }));
+      changes.slice(0, 12).forEach(c => {
+        const label = c.field === "targetMin"
+          ? `${c.routineName} · minutos objetivo`
+          : `${c.exName} (${c.routineName})`;
+        const unit = c.field === "weight" ? ` ${State.prefs.unit}` : c.field === "duration" ? "s" : c.field === "targetMin" ? " min" : "";
+        preview.appendChild(el("div", { class:"progression-change" }, [
+          el("span", { text: label }),
+          el("strong", { text: `${c.from}${unit} → ${c.to}${unit}` })
+        ]));
+      });
+      if (changes.length > 12) {
+        preview.appendChild(el("div", { class:"muted", text:`…y ${changes.length - 12} cambio(s) más.` }));
+      }
+    }
+
+    const hist = $("#progressionHistory");
+    hist.innerHTML = "";
+    if (!live.history.length) {
+      hist.appendChild(el("div", { class:"muted", text:"Todavía no hay aumentos aplicados." }));
+    } else {
+      live.history.slice(0, 8).forEach(h => {
+        hist.appendChild(el("div", { class:"progression-change" }, [
+          el("span", { text:`Ciclo ${h.cycle} · ${formatDate(localISODate(h.at), State.prefs)}` }),
+          el("strong", { text:`${h.changes.length} ajuste(s)` })
+        ]));
+      });
+    }
+    $("#btnProgressionUndo").disabled = !live.history.length;
+  };
+
+  ["#progEnabled","#progWeightAmount","#progWeightMode","#progWeightMax","#progSeconds","#progReps","#progMinutes"]
+    .forEach(id => { const node = $(id); if (node) node.oninput = paint; });
+  $("#progWeightMode").onchange = paint;
+
+  $("#btnProgressionUndo").onclick = async () => {
+    const current = State.programs.find(p => p.id === program.id);
+    if (!current) return;
+    const ok = await confirmDialog({
+      title: "Deshacer aumento",
+      text: "Se restaurarán los pesos, tiempos y reps que tenías antes del último aumento.",
+      yesText: "Deshacer",
+      noText: "Cancelar"
+    });
+    if (!ok) return;
+    if (undoLastProgression(current)) {
+      toast("Aumento deshecho", "Volviste a la carga anterior.", "ok");
+      paint();
+      scheduleRender();
+    }
+  };
+
+  $("#btnSaveProgression").onclick = () => {
+    const form = readForm();
+    const current = State.programs.find(p => p.id === program.id) || program;
+    const live = programProgression(current);
+    // Al activarla por primera vez, el ciclo arranca hoy.
+    const patch = { ...form };
+    if (form.enabled && !live.cycleStart) patch.cycleStart = Date.now();
+    saveProgression(program.id, patch);
+    toast("Progresión guardada", form.enabled ? "Activa en este programa." : "Desactivada.", "ok");
+    closeModal("#modalProgression");
+    scheduleRender();
+  };
+
+  paint();
+  openModal("#modalProgression");
+}
+
+/* ---------------------------
    ROUTINES
 --------------------------- */
 const rerenderRoutinesDebounced = debounce(() => scheduleRender(), 120);
@@ -1858,6 +2198,24 @@ function renderProgramBar() {
         setActiveProgram(sel.value);
         scheduleRender();
       });
+    }
+  }
+
+  // Indicador de progresión del programa activo
+  const pill = $("#programProgressionPill");
+  if (pill) {
+    const p = activeProgram();
+    const cfg = p ? programProgression(p) : null;
+    if (!p || !cfg.enabled) {
+      pill.classList.add("is-hidden");
+    } else {
+      const status = cycleStatus(p);
+      pill.classList.remove("is-hidden");
+      pill.classList.toggle("pill--ok", status.complete);
+      pill.textContent = status.complete
+        ? `📈 Ciclo ${cfg.cycle} listo · sube al guardar`
+        : `📈 Ciclo ${cfg.cycle} · ${status.done}/${status.total}`;
+      pill.title = status.pending.length ? `Faltan: ${status.pending.map(r => r.name).join(", ")}` : "Ciclo completo";
     }
   }
 
@@ -1888,6 +2246,12 @@ function renderProgramBar() {
     if (!copy) return;
     toast("Programa duplicado", copy.name, "ok");
     scheduleRender();
+  });
+
+  bind("#btnProgression", () => {
+    const p = activeProgram();
+    if (!p) return;
+    openProgressionModal(p);
   });
 
   bind("#btnShareProgram", () => {
@@ -2864,6 +3228,9 @@ async function saveSessionFromUI() {
   } else {
     toast("Sesión guardada", `${draft.routineName} • ${formatDate(s.date, State.prefs)}`, "ok");
   }
+
+  // ¿Se cerró el ciclo del programa? Proponer sobrecarga progresiva.
+  await maybeOfferProgression(s);
 
   // ir al historial para ver el resultado
   location.hash = "#history";

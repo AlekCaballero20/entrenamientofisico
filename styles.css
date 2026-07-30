@@ -2980,3 +2980,68 @@ body.workout-open { overflow: hidden; }
   border-color: var(--ok, #5dffb1);
   color: var(--ok, #5dffb1);
 }
+
+/* =========================================================
+   PROGRESIÓN AUTOMÁTICA
+========================================================= */
+#modalProgression .modal__panel { width: min(720px, calc(100vw - 24px)); }
+#modalProgression .modal__body { display: grid; gap: 14px; }
+#modalProgression .modal__foot { justify-content: space-between; flex-wrap: wrap; }
+#modalProgression .modal__foot #btnProgressionUndo { margin-right: auto; }
+
+.program-bar__left #programProgressionPill { white-space: nowrap; }
+#programProgressionPill.is-hidden { display: none; }
+
+.progression-cycle {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,.04);
+}
+.progression-cycle__level {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.progression-cycle__level strong { font-size: 15px; font-weight: 900; }
+.progression-cycle div { font-size: 12px; }
+
+.switch-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,.04);
+  cursor: pointer;
+}
+.switch-field input { width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer; }
+
+.progression-preview,
+.progression-history {
+  display: grid;
+  gap: 6px;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.progression-change {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,.03);
+  font-size: 13px;
+}
+.progression-change strong { color: var(--accent2, #7bffb6); white-space: nowrap; font-weight: 800; }
+
+@media (max-width: 820px) {
+  #modalProgression .grid--2 { grid-template-columns: 1fr; }
+}

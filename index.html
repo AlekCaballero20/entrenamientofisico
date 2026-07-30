@@ -435,11 +435,13 @@
             <div class="program-bar__left">
               <label class="program-bar__label" for="programSelect">Programa</label>
               <select id="programSelect" class="input program-bar__select" aria-label="Programa activo"></select>
+              <span id="programProgressionPill" class="pill is-hidden"></span>
             </div>
             <div class="program-bar__actions">
               <button id="btnNewProgram" class="btn btn--ghost" type="button" title="Crear programa">➕ Nuevo</button>
               <button id="btnRenameProgram" class="btn btn--ghost" type="button" title="Renombrar programa">✏️ Renombrar</button>
               <button id="btnDuplicateProgram" class="btn btn--ghost" type="button" title="Duplicar programa con sus días">⧉ Duplicar</button>
+              <button id="btnProgression" class="btn btn--ghost" type="button" title="Configurar aumento automático de carga">📈 Progresión</button>
               <button id="btnShareProgram" class="btn btn--ghost" type="button" title="Compartir programa con otro usuario">📤 Compartir</button>
               <button id="btnDeleteProgram" class="btn btn--ghost" type="button" title="Eliminar programa">🗑️ Eliminar</button>
             </div>
@@ -1112,6 +1114,75 @@
         <div class="modal__foot">
           <button class="btn btn--ghost" type="button" data-close>Cancelar</button>
           <button id="btnSaveRoutine" class="btn btn--primary" type="button">Guardar rutina</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: Progresión automática -->
+    <div id="modalProgression" class="modal" role="dialog" aria-modal="true" aria-labelledby="modalProgressionTitle" hidden>
+      <div class="modal__backdrop" data-close></div>
+      <div class="modal__panel" role="document">
+        <div class="modal__head">
+          <h3 id="modalProgressionTitle">📈 Progresión automática</h3>
+          <button class="icon-btn" type="button" data-close aria-label="Cerrar">
+            <span class="icon" aria-hidden="true">✖️</span>
+          </button>
+        </div>
+
+        <div class="modal__body">
+          <p class="muted">
+            Cuando entrenes al menos una vez cada rutina del programa se cierra un ciclo,
+            y GymOS te propone subir la carga. Tú confirmas antes de que cambie nada.
+          </p>
+
+          <div id="progressionCycle" class="progression-cycle"></div>
+
+          <label class="switch-field">
+            <input id="progEnabled" type="checkbox" />
+            <span><strong>Activar progresión en este programa</strong></span>
+          </label>
+
+          <div class="grid grid--2">
+            <label class="field">
+              <span class="field__label">Aumento de peso</span>
+              <input id="progWeightAmount" class="input" type="number" min="0" step="0.5" placeholder="Ej. 2.5" />
+            </label>
+            <label class="field">
+              <span class="field__label">Tipo de aumento</span>
+              <select id="progWeightMode" class="input">
+                <option value="abs">Cantidad fija (kg/lbs)</option>
+                <option value="pct">Porcentaje (%)</option>
+              </select>
+            </label>
+            <label class="field">
+              <span class="field__label">Peso máximo por ejercicio (0 = sin tope)</span>
+              <input id="progWeightMax" class="input" type="number" min="0" step="0.5" placeholder="Ej. 60" />
+            </label>
+            <label class="field">
+              <span class="field__label">Segundos extra (ejercicios por tiempo)</span>
+              <input id="progSeconds" class="input" type="number" min="0" step="1" placeholder="Ej. 5" />
+            </label>
+            <label class="field">
+              <span class="field__label">Repeticiones extra (ejercicios sin peso)</span>
+              <input id="progReps" class="input" type="number" min="0" step="1" placeholder="Ej. 1" />
+            </label>
+            <label class="field">
+              <span class="field__label">Minutos extra al objetivo de cada rutina</span>
+              <input id="progMinutes" class="input" type="number" min="0" step="1" placeholder="Ej. 5" />
+            </label>
+          </div>
+
+          <div class="subhead">Vista previa del próximo aumento</div>
+          <div id="progressionPreview" class="progression-preview"></div>
+
+          <div class="subhead">Historial de aumentos</div>
+          <div id="progressionHistory" class="progression-history"></div>
+        </div>
+
+        <div class="modal__foot">
+          <button id="btnProgressionUndo" class="btn btn--ghost" type="button">↩️ Deshacer último aumento</button>
+          <button class="btn btn--ghost" type="button" data-close>Cancelar</button>
+          <button id="btnSaveProgression" class="btn btn--primary" type="button">Guardar</button>
         </div>
       </div>
     </div>
