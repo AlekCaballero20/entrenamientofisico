@@ -506,6 +506,9 @@
                     <div class="subhead">Cardio sugerido</div>
                     <div class="muted" id="routineCardio">-</div>
 
+                    <div class="subhead">Elementos necesarios</div>
+                    <div id="routineEquipmentList" class="equipment-check"></div>
+
                     <div class="subhead">Ejercicios</div>
                     <div class="table-wrap">
                       <table class="table" aria-label="Ejercicios de la rutina">
@@ -624,6 +627,16 @@
                   <div><span>2</span><strong>Marca series o inicia el tiempo</strong></div>
                   <div><span>3</span><strong>Guarda al terminar</strong></div>
                 </div>
+                <div id="sessionEquipment" class="equipment-panel is-hidden">
+                  <div class="equipment-panel__head">
+                    <div>
+                      <strong>Elementos que necesitas</strong>
+                      <span class="muted" id="sessionEquipmentStatus">Marca cada elemento cuando lo tengas a la mano.</span>
+                    </div>
+                  </div>
+                  <div id="sessionEquipmentList" class="equipment-check"></div>
+                </div>
+
                 <div class="empty" id="sessionExercisesEmpty">
                   <div class="empty__icon" aria-hidden="true">🧾</div>
                   <div class="empty__title">Aún no hay ejercicios</div>
@@ -1063,6 +1076,12 @@
             <input id="routineCardioSuggest" class="input" type="text" placeholder="Ej. 5–10 min + Elíptica" />
           </label>
 
+          <label class="field">
+            <span class="field__label">Elementos que usa la rutina</span>
+            <input id="routineEquipment" class="input" type="text" placeholder="Ej. Mancuernas, colchoneta, banda elástica" />
+            <span class="muted">Sepáralos con comas. Aparecerán como checklist rápida antes de entrenar.</span>
+          </label>
+
           <div class="routine-editor-intro">
             <div>
               <div class="subhead">Ejercicios de la rutina</div>
@@ -1078,16 +1097,41 @@
             <div class="editor__empty muted">Aquí aparecerán los ejercicios.</div>
           </div>
 
-          <button id="btnAddExerciseRow" class="btn btn--ghost" type="button">
-            <span class="icon" aria-hidden="true">➕</span>
-            Agregar ejercicio
-          </button>
+          <div class="editor-actions">
+            <button id="btnAddExerciseRow" class="btn btn--ghost" type="button">
+              <span class="icon" aria-hidden="true">➕</span>
+              Agregar ejercicio
+            </button>
+            <button id="btnReuseExercise" class="btn btn--ghost" type="button">
+              <span class="icon" aria-hidden="true">♻️</span>
+              Reutilizar de otra rutina
+            </button>
+          </div>
         </div>
 
         <div class="modal__foot">
           <button class="btn btn--ghost" type="button" data-close>Cancelar</button>
           <button id="btnSaveRoutine" class="btn btn--primary" type="button">Guardar rutina</button>
         </div>
+      </div>
+    </div>
+
+    <!-- MODAL: Selector reutilizable (ejercicios / imágenes) -->
+    <div id="modalPicker" class="modal modal--stack" role="dialog" aria-modal="true" aria-labelledby="modalPickerTitle" hidden>
+      <div class="modal__backdrop" data-close></div>
+      <div class="modal__panel" role="document">
+        <div class="modal__head">
+          <h3 id="modalPickerTitle">Reutilizar</h3>
+          <button class="icon-btn" type="button" data-close aria-label="Cerrar">
+            <span class="icon" aria-hidden="true">✖️</span>
+          </button>
+        </div>
+        <div class="modal__body">
+          <p id="pickerSubtitle" class="muted"></p>
+          <input id="pickerSearch" class="input" type="search" placeholder="Buscar…" />
+          <div id="pickerList" class="picker-list"></div>
+        </div>
+        <div id="pickerFoot" class="modal__foot"></div>
       </div>
     </div>
 

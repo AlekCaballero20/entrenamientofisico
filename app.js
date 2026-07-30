@@ -24,7 +24,7 @@
 /* ---------------------------
    CONSTANTS / KEYS
 --------------------------- */
-const APP_VERSION = "0.6.0-sharing";
+const APP_VERSION = "0.7.0-reuse";
 
 // Cache interna por usuario: no es un modo local de trabajo, solo evita perder
 // estado temporal mientras Firestore termina de responder.
@@ -237,7 +237,27 @@ function withExerciseMedia(ex) {
   out.videoUrl = cleanMediaUrl(out.videoUrl || out.video || out.videoLink || "");
   out.duration = Math.max(0, Number(out.duration || 0));
   out.rest = Math.max(0, Number(out.rest || 0));
+  out.restAfter = Math.max(0, Number(out.restAfter || 0));
   return out;
+}
+
+/* Elementos (equipo) de una rutina: acepta array o texto separado por comas. */
+function parseEquipmentList(value) {
+  const raw = Array.isArray(value) ? value : String(value || "").split(/[,\n;]/);
+  const seen = new Set();
+  return raw
+    .map(v => String(v || "").trim())
+    .filter(v => {
+      if (!v) return false;
+      const key = v.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function routineEquipment(routine) {
+  return parseEquipmentList(routine?.equipment);
 }
 
 function sessionCardios(session) {
@@ -1325,6 +1345,7 @@ function createRoutine(data) {
     tag: String(data.tag || "").trim(),
     targetMin: Number(data.targetMin || 0),
     cardioSuggest: String(data.cardioSuggest || "").trim(),
+    equipment: parseEquipmentList(data.equipment),
     exercises: Array.isArray(data.exercises) ? data.exercises.map(x => ({
       name: String(x.name || "").trim(),
       sets: Number(x.sets || 0),
@@ -1335,7 +1356,8 @@ function createRoutine(data) {
       imageUrl: cleanMediaUrl(x.imageUrl || x.image || ""),
       videoUrl: cleanMediaUrl(x.videoUrl || x.video || ""),
       duration: Math.max(0, Number(x.duration || 0)),
-      rest: Math.max(0, Number(x.rest || 0))
+      rest: Math.max(0, Number(x.rest || 0)),
+      restAfter: Math.max(0, Number(x.restAfter || 0))
     })) : [],
     createdAt: now,
     updatedAt: now
@@ -1404,7 +1426,8 @@ function createSession(session) {
       imageUrl: cleanMediaUrl(ex.imageUrl || ex.image || ""),
       videoUrl: cleanMediaUrl(ex.videoUrl || ex.video || ""),
       duration: Math.max(0, Number(ex.duration || 0)),
-      rest: Math.max(0, Number(ex.rest || 0))
+      rest: Math.max(0, Number(ex.rest || 0)),
+      restAfter: Math.max(0, Number(ex.restAfter || 0))
     })) : [],
     createdAt: Date.now(),
     updatedAt: Date.now()
@@ -2027,6 +2050,7 @@ function renderRoutineDetail() {
   $("#routineDetailName") && ($("#routineDetailName").textContent = r.name);
   $("#routineDetailMeta") && ($("#routineDetailMeta").textContent = `${r.tag || "Sin tag"} • ${r.exercises.length} ejercicios • ${r.targetMin || 0} min`);
   $("#routineCardio") && ($("#routineCardio").textContent = r.cardioSuggest || "-");
+  renderEquipmentChecklist($("#routineEquipmentList"), routineEquipment(r), `routine:${r.id}`);
 
   tbody.innerHTML = "";
   r.exercises.forEach(ex => {
@@ -2066,6 +2090,62 @@ function renderRoutineDetail() {
   });
 }
 
+/* Checklist rápida de elementos. El marcado vive solo en memoria (por scope),
+   así se puede repasar antes de entrenar sin ensuciar los datos guardados. */
+const EquipmentChecks = new Map(); // scope -> Set(item)
+
+function renderEquipmentChecklist(container, items, scope, onChange=null) {
+  if (!container) return;
+  container.innerHTML = "";
+  if (!items.length) {
+    container.appendChild(el("div", { class:"muted", text:"Sin elementos definidos. Edita la rutina para agregarlos." }));
+    onChange && onChange(0, 0);
+    return;
+  }
+
+  if (!EquipmentChecks.has(scope)) EquipmentChecks.set(scope, new Set());
+  const checked = EquipmentChecks.get(scope);
+  const report = () => onChange && onChange(items.filter(i => checked.has(i)).length, items.length);
+
+  items.forEach(item => {
+    const btn = el("button", {
+      class:`equipment-item${checked.has(item) ? " is-checked" : ""}`,
+      type:"button",
+      "aria-pressed": checked.has(item) ? "true" : "false"
+    }, [
+      el("span", { class:"equipment-item__box", text: checked.has(item) ? "✓" : "", "aria-hidden":"true" }),
+      el("span", { text:item })
+    ]);
+    btn.onclick = () => {
+      if (checked.has(item)) checked.delete(item); else checked.add(item);
+      const on = checked.has(item);
+      btn.classList.toggle("is-checked", on);
+      btn.setAttribute("aria-pressed", on ? "true" : "false");
+      btn.querySelector(".equipment-item__box").textContent = on ? "✓" : "";
+      report();
+    };
+    container.appendChild(btn);
+  });
+  report();
+}
+
+function renderSessionEquipment() {
+  const panel = $("#sessionEquipment");
+  const list = $("#sessionEquipmentList");
+  if (!panel || !list) return;
+  const routine = State.routines.find(r => r.id === $("#sessionRoutineSelect")?.value);
+  const items = routineEquipment(routine);
+  if (!items.length) { panel.classList.add("is-hidden"); list.innerHTML = ""; return; }
+  panel.classList.remove("is-hidden");
+  renderEquipmentChecklist(list, items, `session:${routine.id}`, (done, total) => {
+    const status = $("#sessionEquipmentStatus");
+    if (!status) return;
+    status.textContent = done === total
+      ? `¡Listo! Tienes los ${total} elementos.`
+      : `${done} de ${total} listos. Marca cada elemento cuando lo tengas a la mano.`;
+  });
+}
+
 /* ---------------------------
    ROUTINE MODAL
 --------------------------- */
@@ -2080,6 +2160,7 @@ function openRoutineModal({ mode="new", routine=null } = {}) {
   $("#routineTargetMin").value = isEdit ? (routine.targetMin || "") : "";
   $("#routineTag").value = isEdit ? (routine.tag || "") : "";
   $("#routineCardioSuggest").value = isEdit ? (routine.cardioSuggest || "") : "";
+  $("#routineEquipment") && ($("#routineEquipment").value = isEdit ? routineEquipment(routine).join(", ") : "");
 
   const editor = $("#routineExercisesEditor");
   editor.innerHTML = "";
@@ -2095,6 +2176,14 @@ function openRoutineModal({ mode="new", routine=null } = {}) {
     $(".editor__empty", editor)?.remove();
     editor.appendChild(renderEditorRow({ name:"", sets:3, reps:"10", weight:0, unit: State.prefs.unit, notes:"", imageUrl:"", videoUrl:"" }));
   };
+
+  $("#btnReuseExercise") && ($("#btnReuseExercise").onclick = () => {
+    openExercisePicker(picked => {
+      $(".editor__empty", editor)?.remove();
+      picked.forEach(ex => editor.appendChild(renderEditorRow(ex)));
+      toast("Ejercicios agregados", `${picked.length} ejercicio(s) reutilizado(s).`, "ok");
+    }, isEdit ? routine.id : null);
+  });
 
   $("#btnSaveRoutine").onclick = () => {
     const data = collectRoutineModalData();
@@ -2129,6 +2218,7 @@ function renderEditorRow(ex) {
   const weight = el("input", { class:"input input--sm", type:"number", min:"0", step:"0.5", value: ex.weight ?? 0, placeholder:"Peso", "data-field":"weight" });
   const duration = el("input", { class:"input input--sm", type:"number", min:"0", step:"1", value: ex.duration ?? 0, placeholder:"Seg.", "data-field":"duration" });
   const rest = el("input", { class:"input input--sm", type:"number", min:"0", step:"1", value: ex.rest ?? 0, placeholder:"Seg.", "data-field":"rest" });
+  const restAfter = el("input", { class:"input input--sm", type:"number", min:"0", step:"1", value: ex.restAfter ?? 0, placeholder:"Seg.", "data-field":"restAfter" });
   const notes = el("input", { class:"input input--sm", type:"text", value: ex.notes || "", placeholder:"Notas", "data-field":"notes" });
   const imageUrl = el("input", { class:"input input--sm", type:"url", value: cleanMediaUrl(ex.imageUrl || ""), placeholder:"URL imagen", "data-field":"imageUrl" });
   const videoUrl = el("input", { class:"input input--sm", type:"url", value: cleanMediaUrl(ex.videoUrl || ""), placeholder:"Link video", "data-field":"videoUrl" });
@@ -2138,6 +2228,12 @@ function renderEditorRow(ex) {
     el("span", { class:"icon", text:"🖼️", "aria-hidden":"true" }),
     el("span", { text:"Subir" })
   ]);
+
+  const galleryBtn = el("button", { class:"btn btn--ghost btn--sm", type:"button", title:"Reutilizar una imagen ya usada en otro ejercicio" }, [
+    el("span", { class:"icon", text:"🗂️", "aria-hidden":"true" }),
+    el("span", { text:"Reutilizar imagen" })
+  ]);
+  galleryBtn.onclick = () => openImagePicker(url => { imageUrl.value = url; });
 
   uploadBtn.onclick = () => fileInput.click();
   fileInput.onchange = () => {
@@ -2191,14 +2287,15 @@ function renderEditorRow(ex) {
       ])
     ]),
     cell("Duración del ejercicio (segundos)", duration),
-    cell("Descanso después (segundos)", rest)
+    cell("Descanso entre series (segundos)", rest),
+    cell("Descanso antes del siguiente ejercicio (segundos)", restAfter)
   ]);
   const media = el("details", { class:"editor-group editor-group--media" }, [
     el("summary", { text:"Imagen o video (opcional)" }),
     el("div", { class:"editor-media-fields" }, [
       cell("URL de imagen", imageUrl),
       cell("Enlace de video", videoUrl),
-      uploadBtn
+      el("div", { class:"editor-media-actions" }, [uploadBtn, galleryBtn])
     ])
   ]);
   row.appendChild(el("div", { class:"editor-row__head" }, [title, delBtn]));
@@ -2223,6 +2320,7 @@ function collectRoutineModalData() {
     const weight = getField(row, "weight");
     const duration = getField(row, "duration");
     const rest = getField(row, "rest");
+    const restAfter = getField(row, "restAfter");
     const notes = getField(row, "notes");
     const imageUrl = getField(row, "imageUrl");
     const videoUrl = getField(row, "videoUrl");
@@ -2234,6 +2332,7 @@ function collectRoutineModalData() {
       weight: Number(weight || 0),
       duration: Math.max(0, Number(duration || 0)),
       rest: Math.max(0, Number(rest || 0)),
+      restAfter: Math.max(0, Number(restAfter || 0)),
       unit: State.prefs.unit,
       notes: String(notes).trim(),
       imageUrl: cleanMediaUrl(imageUrl),
@@ -2246,10 +2345,171 @@ function collectRoutineModalData() {
     targetMin: Number($("#routineTargetMin").value || 0),
     tag: $("#routineTag").value,
     cardioSuggest: $("#routineCardioSuggest").value,
+    equipment: parseEquipmentList($("#routineEquipment")?.value),
     exercises
   };
 }
 
+
+/* ---------------------------
+   BIBLIOTECA: REUTILIZAR EJERCICIOS E IMÁGENES
+   Los ejercicios ya creados en cualquier rutina (de cualquier programa) se
+   pueden copiar a la rutina que estás editando, con todos sus campos.
+--------------------------- */
+function exerciseLibrary(excludeRoutineId=null) {
+  const seen = new Set();
+  const out = [];
+  State.routines.forEach(r => {
+    if (excludeRoutineId && r.id === excludeRoutineId) return;
+    (r.exercises || []).forEach(ex => {
+      const name = String(ex.name || "").trim();
+      if (!name) return;
+      const key = name.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push({ ...withExerciseMedia(ex), name, routineName: r.name || "Rutina" });
+    });
+  });
+  return out.sort((a, b) => a.name.localeCompare(b.name, "es"));
+}
+
+function imageLibrary() {
+  const seen = new Map();
+  const push = (ex) => {
+    const url = cleanMediaUrl(ex?.imageUrl);
+    if (!url || !isHttpUrl(url) || seen.has(url)) return;
+    seen.set(url, String(ex.name || "Ejercicio").trim());
+  };
+  State.routines.forEach(r => (r.exercises || []).forEach(push));
+  State.sessions.forEach(s => (s.exercises || []).forEach(push));
+  return [...seen.entries()].map(([url, name]) => ({ url, name }));
+}
+
+function closePicker() {
+  const m = $("#modalPicker");
+  if (!m) return;
+  m.hidden = true;
+  $("#pickerList").innerHTML = "";
+  $("#pickerSearch").value = "";
+  $("#pickerFoot").innerHTML = "";
+}
+
+function openPicker({ title, subtitle, searchPlaceholder, renderList, footer=null }) {
+  const m = $("#modalPicker");
+  if (!m) return;
+  $("#modalPickerTitle").textContent = title;
+  $("#pickerSubtitle").textContent = subtitle || "";
+  const search = $("#pickerSearch");
+  search.placeholder = searchPlaceholder || "Buscar…";
+  search.value = "";
+  const list = $("#pickerList");
+  const paint = () => renderList(list, search.value.toLowerCase().trim());
+  search.oninput = paint;
+  paint();
+  const foot = $("#pickerFoot");
+  foot.innerHTML = "";
+  foot.appendChild(el("button", { class:"btn btn--ghost", type:"button", text:"Cancelar", onclick: closePicker }));
+  if (footer) foot.appendChild(footer);
+  m.hidden = false;
+  setTimeout(() => search.focus(), 50);
+}
+
+function openExercisePicker(onPick, excludeRoutineId=null) {
+  const library = exerciseLibrary(excludeRoutineId);
+  if (!library.length) {
+    toast("Sin ejercicios", "Aún no hay ejercicios en otras rutinas.", "warn");
+    return;
+  }
+
+  const selected = new Set();
+  const confirmBtn = el("button", { class:"btn btn--primary", type:"button", text:"Agregar (0)" });
+  const refreshBtn = () => { confirmBtn.textContent = `Agregar (${selected.size})`; };
+
+  confirmBtn.onclick = () => {
+    if (!selected.size) { toast("Nada seleccionado", "Elige al menos un ejercicio.", "warn"); return; }
+    const picked = library
+      .filter(ex => selected.has(ex.name.toLowerCase()))
+      .map(({ routineName, ...ex }) => ({ ...ex }));
+    closePicker();
+    onPick(picked);
+  };
+
+  openPicker({
+    title: "♻️ Reutilizar ejercicios",
+    subtitle: "Copia ejercicios ya creados en otras rutinas, con sus series, tiempos e imagen.",
+    searchPlaceholder: "Buscar por nombre o rutina…",
+    footer: confirmBtn,
+    renderList(list, q) {
+      list.innerHTML = "";
+      const rows = library.filter(ex =>
+        !q || ex.name.toLowerCase().includes(q) || String(ex.routineName).toLowerCase().includes(q)
+      );
+      if (!rows.length) {
+        list.appendChild(el("div", { class:"muted", text:"Sin resultados." }));
+        return;
+      }
+      rows.forEach(ex => {
+        const key = ex.name.toLowerCase();
+        const item = el("button", {
+          class: `picker-item${selected.has(key) ? " is-selected" : ""}`,
+          type:"button"
+        });
+        item.onclick = () => {
+          if (selected.has(key)) selected.delete(key); else selected.add(key);
+          item.classList.toggle("is-selected", selected.has(key));
+          refreshBtn();
+        };
+        if (ex.imageUrl && isHttpUrl(ex.imageUrl)) {
+          item.appendChild(el("img", { class:"picker-item__thumb", src:ex.imageUrl, alt:"", loading:"lazy" }));
+        }
+        const detail = [
+          ex.sets ? `${ex.sets} series` : "",
+          ex.reps ? `${ex.reps} reps` : "",
+          ex.duration ? `${ex.duration}s` : "",
+          ex.rest ? `${ex.rest}s descanso` : ""
+        ].filter(Boolean).join(" · ");
+        item.appendChild(el("span", { class:"picker-item__copy" }, [
+          el("strong", { text: ex.name }),
+          el("span", { class:"muted", text: `${ex.routineName}${detail ? " · " + detail : ""}` })
+        ]));
+        item.appendChild(el("span", { class:"picker-item__check", text:"✓" }));
+        list.appendChild(item);
+      });
+    }
+  });
+}
+
+function openImagePicker(onPick) {
+  const images = imageLibrary();
+  if (!images.length) {
+    toast("Sin imágenes", "Todavía no hay imágenes guardadas en otros ejercicios.", "warn");
+    return;
+  }
+
+  openPicker({
+    title: "🖼️ Reutilizar imagen",
+    subtitle: "Elige una imagen que ya usaste en otro ejercicio.",
+    searchPlaceholder: "Buscar por ejercicio…",
+    renderList(list, q) {
+      list.innerHTML = "";
+      const rows = images.filter(img => !q || img.name.toLowerCase().includes(q));
+      if (!rows.length) {
+        list.appendChild(el("div", { class:"muted", text:"Sin resultados." }));
+        return;
+      }
+      const grid = el("div", { class:"picker-grid" });
+      rows.forEach(img => {
+        const card = el("button", { class:"picker-image", type:"button", title:img.name }, [
+          el("img", { src:img.url, alt:`Imagen de ${img.name}`, loading:"lazy" }),
+          el("span", { text:img.name })
+        ]);
+        card.onclick = () => { closePicker(); onPick(img.url); toast("Imagen elegida", img.name, "ok"); };
+        grid.appendChild(card);
+      });
+      list.appendChild(grid);
+    }
+  });
+}
 
 /* ---------------------------
    SEED ROUTINES
@@ -2315,6 +2575,9 @@ function renderNewSession() {
   $("#btnSaveSession") && ($("#btnSaveSession").onclick = () => saveSessionFromUI());
   $("#btnPreviewSession") && ($("#btnPreviewSession").onclick = () => previewSession());
   $("#btnWorkoutMode") && ($("#btnWorkoutMode").onclick = () => WorkoutMode.enter());
+
+  sel && (sel.onchange = () => renderSessionEquipment());
+  renderSessionEquipment();
 
   bindSessionAutosaveOnce();
   renderCardioSummary();
@@ -3480,6 +3743,12 @@ const CoachMessages = {
     "Enfócate: solo tú y el ejercicio.",
     "¡Fuerte! Tu yo del futuro te lo agradece."
   ],
+  restAfter: [
+    "Ejercicio listo. Recupera antes del siguiente.",
+    "Respira, hidrátate y prepárate para lo que viene.",
+    "Descanso ganado. El siguiente ejercicio te espera.",
+    "Afloja los músculos, ya casi seguimos."
+  ],
   rest: [
     "Respira profundo… recupera.",
     "Hidrátate, ya casi viene la siguiente.",
@@ -3501,24 +3770,27 @@ const CoachMessages = {
 };
 
 const GymTimer = {
-  interval:null, remaining:0, total:0, paused:false, mode:"exercise", rest:0, title:"",
+  interval:null, remaining:0, total:0, paused:false, mode:"exercise", rest:0, restAfter:0, title:"",
   sets:1, currentSet:1, exerciseSeconds:0, coachMsg:"", _endTimer:null,
 
-  /* Ciclo con series: ejercicio (serie 1) → descanso → ejercicio (serie 2) → … → completado.
+  /* Ciclo con series: ejercicio (serie 1) → descanso → ejercicio (serie 2) → … →
+     descanso entre ejercicios (restAfter) → siguiente ejercicio.
      `sets` = número de series; `set` = serie actual (interno, para encadenar fases). */
-  start(seconds, { mode="exercise", title="Ejercicio", rest=0, sets=1, set=1 }={}) {
+  start(seconds, { mode="exercise", title="Ejercicio", rest=0, restAfter=0, sets=1, set=1 }={}) {
     this.stop(false); clearTimeout(this._endTimer);
     this.remaining=this.total=Math.max(1,Number(seconds)); this.mode=mode; this.rest=Number(rest||0); this.title=title; this.paused=false;
+    this.restAfter=Math.max(0,Number(restAfter||0));
     this.sets=Math.max(1,Number(sets||1)); this.currentSet=clamp(Number(set||1),1,this.sets);
     if (mode==="exercise") this.exerciseSeconds=this.total;
-    this.coachMsg=CoachMessages.pick(mode==="rest"?"rest":"exercise");
+    this.coachMsg=CoachMessages.pick(mode==="exercise"?"exercise":(mode==="restAfter"?"restAfter":"rest"));
     $("#floating-timer")?.classList.remove("is-hidden"); this.bind(); this.paint();
     this.interval=setInterval(() => { if (this.paused) return; this.remaining--; if (this.remaining<=3 && this.remaining>0) TimerSounds.tone(); this.paint(); if (this.remaining<=0) this.finish(); },1000);
   },
 
   finish() {
     clearInterval(this.interval);
-    const opts = { title:this.title, rest:this.rest, sets:this.sets };
+    const opts = { title:this.title, rest:this.rest, restAfter:this.restAfter, sets:this.sets };
+    if (this.mode==="restAfter") { this.endRestAfter(); return; }
     if (this.mode==="exercise") {
       if (this.currentSet < this.sets) {
         TimerSounds.success();
@@ -3547,9 +3819,31 @@ const GymTimer = {
     $("#timer-progress-fill") && ($("#timer-progress-fill").style.width="100%");
     $("#timer-coach") && ($("#timer-coach").textContent=this.coachMsg);
     clearTimeout(this._endTimer);
+
+    // Descanso entre ejercicios antes de pasar al siguiente.
+    if (this.restAfter > 0) {
+      const seconds = this.restAfter, title = this.title;
+      this._endTimer = setTimeout(() => this.start(seconds, { mode:"restAfter", title:`${title} · descanso`, rest:0, restAfter:0, sets:1 }), 1400);
+      return;
+    }
+
     this._endTimer = setTimeout(() => this.stop(), 2600);
     if (typeof WorkoutMode !== "undefined" && WorkoutMode.active) {
       setTimeout(() => { if (WorkoutMode.active) WorkoutMode.next(); }, 2200);
+    }
+  },
+
+  /* Terminó el descanso entre ejercicios → avanza al siguiente */
+  endRestAfter() {
+    TimerSounds.success();
+    $("#timer-status") && ($("#timer-status").textContent="¡A POR EL SIGUIENTE!");
+    $("#timer-display") && ($("#timer-display").textContent="💪");
+    $("#timer-progress-fill") && ($("#timer-progress-fill").style.width="100%");
+    $("#timer-coach") && ($("#timer-coach").textContent="Descanso terminado. Siguiente ejercicio.");
+    clearTimeout(this._endTimer);
+    this._endTimer = setTimeout(() => this.stop(), 1800);
+    if (typeof WorkoutMode !== "undefined" && WorkoutMode.active) {
+      setTimeout(() => { if (WorkoutMode.active) WorkoutMode.next(); }, 1400);
     }
   },
 
@@ -3568,9 +3862,11 @@ const GymTimer = {
   paint() {
     const multi = this.sets>1;
     $("#timer-title").textContent = multi ? `${this.title} · Serie ${this.currentSet} de ${this.sets}` : this.title;
-    $("#timer-status").textContent = this.mode==="rest"
-      ? (multi ? `DESCANSO · VIENE SERIE ${this.currentSet+1}` : "DESCANSO")
-      : (multi ? `SERIE ${this.currentSet} · EJERCICIO` : "EJERCICIO");
+    $("#timer-status").textContent = this.mode==="restAfter"
+      ? "DESCANSO · VIENE EL SIGUIENTE EJERCICIO"
+      : this.mode==="rest"
+        ? (multi ? `DESCANSO · VIENE SERIE ${this.currentSet+1}` : "DESCANSO")
+        : (multi ? `SERIE ${this.currentSet} · EJERCICIO` : "EJERCICIO");
     $("#timer-display").textContent=`${String(Math.floor(this.remaining/60)).padStart(2,"0")}:${String(this.remaining%60).padStart(2,"0")}`;
     $("#timer-progress-fill").style.width=`${Math.max(0,(this.remaining/this.total)*100)}%`;
     $("#btn-timer-play").textContent=this.paused?"▶️ Continuar":"⏸️ Pausa";
@@ -3689,13 +3985,15 @@ const WorkoutMode = {
 };
 
 function decorateExerciseCards() {
+  renderSessionEquipment();
   const routine = State.routines.find(r => r.id === $("#sessionRoutineSelect")?.value);
   $$(".exercise-card", $("#sessionExercises")).forEach(card => {
     if (card.dataset.timerReady) return;
     const ex = routine?.exercises?.find(x => x.name === card.dataset.exerciseName) || {};
     const duration = Number(ex.duration || card.dataset.duration || 0);
     const rest = Number(ex.rest || card.dataset.rest || 0);
-    card.dataset.duration=duration; card.dataset.rest=rest; card.dataset.timerReady="1";
+    const restAfter = Number(ex.restAfter || card.dataset.restAfter || 0);
+    card.dataset.duration=duration; card.dataset.rest=rest; card.dataset.restAfter=restAfter; card.dataset.timerReady="1";
     const box=$(".exercise-card__timer-box",card); if(!box) return;
     if(duration>0) {
       const setsCount = Math.max(1, Number(ex.sets || $$("input",card)[0]?.value || 1));
@@ -3705,12 +4003,16 @@ function decorateExerciseCards() {
       const copyHint = setsCount>1
         ? (rest>0 ? `Descanso de ${rest} segundos entre series. El temporizador encadena todo solo.` : `El temporizador pasará solo a la siguiente serie.`)
         : (rest>0 ? `Al terminar comenzará un descanso de ${rest} segundos.` : "Pulsa iniciar cuando estés listo.");
+      const copyAfter = restAfter>0
+        ? `Al completar todas las series habrá ${restAfter} segundos de descanso antes del siguiente ejercicio.`
+        : "";
       box.appendChild(el("div",{class:"exercise-action exercise-action--timer"},[
         el("div",{class:"exercise-action__copy"},[
           el("strong",{text:copyMain}),
-          el("span",{text:copyHint})
+          el("span",{text:copyHint}),
+          ...(copyAfter ? [el("span",{text:copyAfter})] : [])
         ]),
-        el("button",{class:"btn btn--primary",type:"button",text:`▶ Iniciar ejercicio`,onclick:()=>GymTimer.start(duration,{title:ex.name||card.dataset.exerciseName,rest,sets:setsCount})})
+        el("button",{class:"btn btn--primary",type:"button",text:`▶ Iniciar ejercicio`,onclick:()=>GymTimer.start(duration,{title:ex.name||card.dataset.exerciseName,rest,restAfter,sets:setsCount})})
       ]));
     }
     else {
@@ -3725,7 +4027,12 @@ function decorateExerciseCards() {
         status.textContent=`${done} de ${sets} series completadas`;
         if(done===sets) {
           TimerSounds.success(); status.textContent=`¡Ejercicio completado! ${sets} de ${sets} series`;
-          if (WorkoutMode.active) setTimeout(() => { if (WorkoutMode.active) WorkoutMode.next(); }, 1100);
+          if (restAfter>0) {
+            // Descanso entre ejercicios: al terminar avanza solo al siguiente.
+            GymTimer.start(restAfter,{mode:"restAfter",title:`${ex.name||card.dataset.exerciseName} · descanso`});
+          } else if (WorkoutMode.active) {
+            setTimeout(() => { if (WorkoutMode.active) WorkoutMode.next(); }, 1100);
+          }
         }
         else if(e.currentTarget.classList.contains("is-completed") && rest>0) GymTimer.start(rest,{mode:"rest",title:`${ex.name||card.dataset.exerciseName} · descanso`});
       }},[
@@ -3739,7 +4046,8 @@ function decorateExerciseCards() {
         el("div",{class:"set-tracker__head"},[
           el("div",{},[
             el("strong",{text:"Cuando termines una serie, pulsa su botón"}),
-            el("span",{text:rest>0?`Al pulsarlo comenzará el descanso de ${rest} segundos.`:"El botón se pondrá verde. Puedes volver a pulsarlo para desmarcarlo."})
+            el("span",{text:rest>0?`Al pulsarlo comenzará el descanso de ${rest} segundos.`:"El botón se pondrá verde. Puedes volver a pulsarlo para desmarcarlo."}),
+            ...(restAfter>0?[el("span",{text:`Al completar la última serie habrá ${restAfter} segundos de descanso antes del siguiente ejercicio.`})]:[])
           ]),
           status
         ]),
@@ -3754,7 +4062,7 @@ collectSessionDraftFromUI = function() {
   const draft=originalCollectSessionDraftFromUI();
   draft.cardios=(State.cardioListDraft||[]).map(c=>({...c}));
   draft.cardio=draft.cardios[0]||null;
-  draft.exercises.forEach(ex=>{const card=$$(".exercise-card",$("#sessionExercises")).find(c=>c.dataset.exerciseName===ex.name);ex.duration=Number(card?.dataset.duration||0);ex.rest=Number(card?.dataset.rest||0);});
+  draft.exercises.forEach(ex=>{const card=$$(".exercise-card",$("#sessionExercises")).find(c=>c.dataset.exerciseName===ex.name);ex.duration=Number(card?.dataset.duration||0);ex.rest=Number(card?.dataset.rest||0);ex.restAfter=Number(card?.dataset.restAfter||0);});
   return draft;
 };
 
