@@ -2591,6 +2591,65 @@ function openRoutineModal({ mode="new", routine=null } = {}) {
   openModal("#modalRoutine");
 }
 
+/* Campo de tiempo con selector de unidad (segundos / minutos).
+   El dato SIEMPRE se guarda en segundos; la unidad es solo para escribirlo
+   más cómodo (5 min en vez de 300 seg). */
+function timeField(field, seconds) {
+  const total = Math.max(0, Number(seconds || 0));
+  const useMin = total >= 60 && total % 60 === 0;
+
+  const input = el("input", {
+    class:"input input--sm",
+    type:"number", min:"0",
+    step: useMin ? "0.5" : "1",
+    value: useMin ? total / 60 : total,
+    "data-field": field,
+    "data-unit": useMin ? "min" : "seg"
+  });
+
+  const select = el("select", { class:"input input--sm time-field__unit", "aria-label":"Unidad de tiempo" }, [
+    el("option", { value:"seg", text:"segundos" }),
+    el("option", { value:"min", text:"minutos" })
+  ]);
+  select.value = useMin ? "min" : "seg";
+
+  const hint = el("span", { class:"time-field__hint" });
+  const syncHint = () => {
+    const secs = timeFieldSeconds(input);
+    hint.textContent = secs > 0 ? `= ${fmtDurationLabel(secs)}` : "0 = por repeticiones";
+  };
+
+  select.onchange = () => {
+    const secs = timeFieldSeconds(input);
+    input.dataset.unit = select.value;
+    input.step = select.value === "min" ? "0.5" : "1";
+    input.value = select.value === "min" ? Math.round((secs / 60) * 100) / 100 : Math.round(secs);
+    syncHint();
+  };
+  input.addEventListener("input", syncHint);
+  syncHint();
+
+  return el("div", { class:"time-field" }, [
+    el("div", { class:"time-field__row" }, [input, select]),
+    hint
+  ]);
+}
+
+/* Lee un input de tiempo y devuelve siempre segundos. */
+function timeFieldSeconds(input) {
+  if (!input) return 0;
+  const value = Math.max(0, Number(input.value || 0));
+  return Math.round(input.dataset.unit === "min" ? value * 60 : value);
+}
+
+function fmtDurationLabel(secs) {
+  const s = Math.max(0, Math.round(Number(secs) || 0));
+  if (s < 60) return `${s} seg`;
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return r ? `${m} min ${r} seg` : `${m} min`;
+}
+
 function renderEditorRow(ex) {
   const row = el("div", { class:"editor-row" });
 
@@ -2598,9 +2657,9 @@ function renderEditorRow(ex) {
   const sets = el("input", { class:"input input--sm", type:"number", min:"0", step:"1", value: ex.sets ?? 0, placeholder:"Sets", "data-field":"sets" });
   const reps = el("input", { class:"input input--sm", type:"text", value: ex.reps || "", placeholder:"Reps", "data-field":"reps" });
   const weight = el("input", { class:"input input--sm", type:"number", min:"0", step:"0.5", value: ex.weight ?? 0, placeholder:"Peso", "data-field":"weight" });
-  const duration = el("input", { class:"input input--sm", type:"number", min:"0", step:"1", value: ex.duration ?? 0, placeholder:"Seg.", "data-field":"duration" });
-  const rest = el("input", { class:"input input--sm", type:"number", min:"0", step:"1", value: ex.rest ?? 0, placeholder:"Seg.", "data-field":"rest" });
-  const restAfter = el("input", { class:"input input--sm", type:"number", min:"0", step:"1", value: ex.restAfter ?? 0, placeholder:"Seg.", "data-field":"restAfter" });
+  const duration = timeField("duration", ex.duration);
+  const rest = timeField("rest", ex.rest);
+  const restAfter = timeField("restAfter", ex.restAfter);
   const notes = el("input", { class:"input input--sm", type:"text", value: ex.notes || "", placeholder:"Notas", "data-field":"notes" });
   const imageUrl = el("input", { class:"input input--sm", type:"url", value: cleanMediaUrl(ex.imageUrl || ""), placeholder:"URL imagen", "data-field":"imageUrl" });
   const videoUrl = el("input", { class:"input input--sm", type:"url", value: cleanMediaUrl(ex.videoUrl || ""), placeholder:"Link video", "data-field":"videoUrl" });
@@ -2668,9 +2727,9 @@ function renderEditorRow(ex) {
         el("span", { text:"Para ejercicios medidos en segundos. Déjalo en 0 si se hace por repeticiones." })
       ])
     ]),
-    cell("Duración del ejercicio (segundos)", duration),
-    cell("Descanso entre series (segundos)", rest),
-    cell("Descanso antes del siguiente ejercicio (segundos)", restAfter)
+    cell("Duración del ejercicio", duration),
+    cell("Descanso entre series", rest),
+    cell("Descanso antes del siguiente ejercicio", restAfter)
   ]);
   const media = el("details", { class:"editor-group editor-group--media" }, [
     el("summary", { text:"Imagen o video (opcional)" }),
@@ -2700,9 +2759,9 @@ function collectRoutineModalData() {
     const sets = getField(row, "sets");
     const reps = getField(row, "reps");
     const weight = getField(row, "weight");
-    const duration = getField(row, "duration");
-    const rest = getField(row, "rest");
-    const restAfter = getField(row, "restAfter");
+    const duration = timeFieldSeconds(row.querySelector('[data-field="duration"]'));
+    const rest = timeFieldSeconds(row.querySelector('[data-field="rest"]'));
+    const restAfter = timeFieldSeconds(row.querySelector('[data-field="restAfter"]'));
     const notes = getField(row, "notes");
     const imageUrl = getField(row, "imageUrl");
     const videoUrl = getField(row, "videoUrl");

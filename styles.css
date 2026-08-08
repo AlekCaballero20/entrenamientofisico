@@ -2353,7 +2353,7 @@ textarea.input { resize: vertical; min-height: 96px; }
 
 .editor-group--timing {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) 190px 190px;
+  grid-template-columns: minmax(220px, 1fr) minmax(230px, 260px) minmax(230px, 260px);
   gap: 14px;
   align-items: end;
   margin: 0 18px 16px;
@@ -2378,6 +2378,12 @@ textarea.input { resize: vertical; min-height: 96px; }
   border-color: rgba(66, 133, 244, .35);
   background: var(--panel);
 }
+
+.time-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.time-field__row { display: grid; grid-template-columns: 1fr 104px; gap: 6px; }
+.time-field__row .input { width: 100%; min-width: 0; }
+.time-field__unit { padding-inline: 8px; font-size: .78rem; }
+.time-field__hint { font-size: .68rem; color: var(--muted); }
 
 .editor-group--media {
   padding: 0;
