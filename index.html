@@ -238,8 +238,8 @@
 
         <div class="topbar__right">
           <button id="btnQuickSession" class="btn btn--primary" type="button">
-            <span class="icon" aria-hidden="true">⚡</span>
-            Iniciar sesión rápida
+            <span class="icon" aria-hidden="true">🏋️</span>
+            Empezar entrenamiento
           </button>
 
           <button id="btnTheme" class="icon-btn" type="button" aria-label="Cambiar tema">
@@ -543,6 +543,27 @@
 
         <!-- ROUTE: NEW SESSION -->
         <section id="view-new-session" class="view" data-view="new-session">
+          <!-- Arranque directo: lo primero que se ve es el botón que empieza el
+               entrenamiento. La configuración detallada queda más abajo. -->
+          <article class="start-hero">
+            <div class="start-hero__copy">
+              <h2 class="start-hero__title">¿Listo para entrenar?</h2>
+              <p class="start-hero__text">Elige la rutina y toca empezar. El peso, el cardio y las notas los anotas durante el entrenamiento o al final.</p>
+            </div>
+            <div class="start-hero__actions">
+              <label class="field start-hero__field">
+                <span class="field__label">Rutina de hoy</span>
+                <select id="startRoutineSelect" class="input" aria-label="Rutina para empezar">
+                  <option value="">Selecciona una rutina…</option>
+                </select>
+              </label>
+              <button id="btnStartWorkout" class="btn btn--primary start-hero__btn" type="button">
+                <span class="icon" aria-hidden="true">🏋️</span>
+                Empezar a entrenar
+              </button>
+            </div>
+          </article>
+
           <div class="grid grid--2">
             <article class="card">
               <div class="card__head">
@@ -609,7 +630,7 @@
               <div class="card__foot">
                 <button id="btnLoadRoutineIntoSession" class="btn btn--primary" type="button">
                   <span class="icon" aria-hidden="true">⬇️</span>
-                  Cargar ejercicios
+                  Cargar ejercicios y empezar
                 </button>
                 <button id="btnClearSession" class="btn btn--ghost" type="button">Limpiar</button>
               </div>
@@ -852,6 +873,29 @@
                 <label class="field">
                   <span class="field__label">Volumen de la música</span>
                   <input id="prefMusicVolume" class="input" type="range" min="0" max="100" step="1" />
+                </label>
+
+                <label class="field">
+                  <span class="field__label">Volumen de las alertas del temporizador</span>
+                  <input id="prefAlertVolume" class="input" type="range" min="0" max="100" step="1" />
+                </label>
+
+                <label class="field">
+                  <span class="field__label">Vibrar con las alertas</span>
+                  <select id="prefVibrate" class="input">
+                    <option value="on">Sí</option>
+                    <option value="off">No</option>
+                  </select>
+                </label>
+
+                <label class="field">
+                  <span class="field__label">Cuenta regresiva antes de cada ejercicio</span>
+                  <select id="prefCountdown" class="input">
+                    <option value="0">Sin cuenta</option>
+                    <option value="3">3 segundos</option>
+                    <option value="5">5 segundos</option>
+                    <option value="10">10 segundos</option>
+                  </select>
                 </label>
 
                 <label class="field">

@@ -56,7 +56,10 @@ const DEFAULT_PREFS = {
   dateFmt: "es-CO",   // es-CO | iso
   music: "ask",       // ask | always | never (al entrar al modo entrenamiento)
   musicVolume: 60,    // 0-100
-  musicShuffle: true
+  musicShuffle: true,
+  alertVolume: 85,    // 0-100 · volumen de pitidos del temporizador
+  vibrate: "on",      // on | off · vibración junto con los pitidos
+  countdown: 5        // segundos de "prepárate" antes de cada ejercicio (0 = sin cuenta)
 };
 
 /* Pistas incluidas en la app (carpeta ./music). */
@@ -1133,6 +1136,9 @@ function applyTheme() {
   const prefDateFmt = $("#prefDateFmt"); if (prefDateFmt) prefDateFmt.value = State.prefs.dateFmt;
   const prefMusic = $("#prefMusic"); if (prefMusic) prefMusic.value = State.prefs.music || "ask";
   const prefMusicVolume = $("#prefMusicVolume"); if (prefMusicVolume) prefMusicVolume.value = State.prefs.musicVolume ?? 60;
+  const prefAlertVolume = $("#prefAlertVolume"); if (prefAlertVolume) prefAlertVolume.value = State.prefs.alertVolume ?? 85;
+  const prefVibrate = $("#prefVibrate"); if (prefVibrate) prefVibrate.value = State.prefs.vibrate || "on";
+  const prefCountdown = $("#prefCountdown"); if (prefCountdown) prefCountdown.value = String(State.prefs.countdown ?? 5);
 }
 
 function bindPrefsUIOnce() {
@@ -1155,6 +1161,11 @@ function bindPrefsUIOnce() {
     const vol = $("#prefMusicVolume")?.value;
     if (vol != null && vol !== "") State.prefs.musicVolume = clamp(Number(vol), 0, 100);
     if (MusicPlayer.audio) MusicPlayer.audio.volume = (State.prefs.musicVolume ?? 60) / 100;
+    const alertVol = $("#prefAlertVolume")?.value;
+    if (alertVol != null && alertVol !== "") State.prefs.alertVolume = clamp(Number(alertVol), 0, 100);
+    State.prefs.vibrate = $("#prefVibrate")?.value || State.prefs.vibrate;
+    const cd = $("#prefCountdown")?.value;
+    if (cd != null && cd !== "") State.prefs.countdown = clamp(Number(cd), 0, 30);
     savePrefs();
     applyTheme();
     toast("Preferencias guardadas", "Listo. El universo no colapsó.", "ok");
@@ -1162,9 +1173,7 @@ function bindPrefsUIOnce() {
 }
 
 function bindShellActionsOnce() {
-  $("#btnQuickSession")?.addEventListener("click", () => {
-    location.hash = "#new-session";
-  });
+  $("#btnQuickSession")?.addEventListener("click", () => quickStartWorkout());
   $("#btnGoNewSession")?.addEventListener("click", () => {
     location.hash = "#new-session";
   });
@@ -2665,7 +2674,7 @@ function renderEditorRow(ex) {
   const videoUrl = el("input", { class:"input input--sm", type:"url", value: cleanMediaUrl(ex.videoUrl || ""), placeholder:"Link video", "data-field":"videoUrl" });
   const fileInput = el("input", { type:"file", accept:"image/*", hidden:true, "data-field":"imageFile" });
 
-  const uploadBtn = el("button", { class:"btn btn--ghost btn--sm", type:"button", title:"Subir imagen a Firebase Storage" }, [
+  const uploadBtn = el("button", { class:"btn btn--ghost btn--sm", type:"button", title:"Subir imagen o GIF animado a Firebase Storage" }, [
     el("span", { class:"icon", text:"🖼️", "aria-hidden":"true" }),
     el("span", { text:"Subir" })
   ]);
@@ -2732,9 +2741,9 @@ function renderEditorRow(ex) {
     cell("Descanso antes del siguiente ejercicio", restAfter)
   ]);
   const media = el("details", { class:"editor-group editor-group--media" }, [
-    el("summary", { text:"Imagen o video (opcional)" }),
+    el("summary", { text:"Imagen, GIF o video (opcional)" }),
     el("div", { class:"editor-media-fields" }, [
-      cell("URL de imagen", imageUrl),
+      cell("URL de imagen o GIF", imageUrl),
       cell("Enlace de video", videoUrl),
       el("div", { class:"editor-media-actions" }, [uploadBtn, galleryBtn])
     ])
@@ -3017,11 +3026,75 @@ function renderNewSession() {
   $("#btnPreviewSession") && ($("#btnPreviewSession").onclick = () => previewSession());
   $("#btnWorkoutMode") && ($("#btnWorkoutMode").onclick = () => WorkoutMode.enter());
 
-  sel && (sel.onchange = () => renderSessionEquipment());
+  sel && (sel.onchange = () => { renderSessionEquipment(); syncStartRoutineSelect(); });
+
+  // Bloque de arranque directo (arriba de todo).
+  syncStartRoutineSelect();
+  const startSel = $("#startRoutineSelect");
+  if (startSel) startSel.onchange = () => {
+    if (!sel) return;
+    sel.value = startSel.value;
+    sel.dispatchEvent(new Event("change", { bubbles:true }));
+  };
+  $("#btnStartWorkout") && ($("#btnStartWorkout").onclick = () => quickStartWorkout());
+
   renderSessionEquipment();
 
   bindSessionAutosaveOnce();
   renderCardioSummary();
+}
+
+/* ---------------------------
+   ARRANQUE DIRECTO DEL ENTRENAMIENTO
+   Antes había que bajar hasta el final del formulario para encontrar el botón
+   que de verdad empieza. Ahora un solo botón elige rutina, carga y arranca.
+--------------------------- */
+
+/* Rutina propuesta: la del borrador, si no la siguiente del programa tras la
+   última sesión registrada, si no la primera. */
+function defaultRoutineIdForToday() {
+  const list = routinesInActiveProgram();
+  if (!list.length) return "";
+
+  const draftId = State.sessionDraft?.routineId;
+  if (draftId && list.some(r => r.id === draftId)) return draftId;
+
+  const last = State.sessions.slice().sort((a,b) => (a.date < b.date ? 1 : -1))[0];
+  const idx = last ? list.findIndex(r => r.id === last.routineId) : -1;
+  return idx >= 0 ? list[(idx + 1) % list.length].id : list[0].id;
+}
+
+/* Mantiene el selector grande de arriba y el del formulario en el mismo valor. */
+function syncStartRoutineSelect() {
+  const start = $("#startRoutineSelect");
+  const form = $("#sessionRoutineSelect");
+  if (!start || !form) return;
+
+  start.innerHTML = "";
+  $$("option", form).forEach(opt => start.appendChild(opt.cloneNode(true)));
+  start.value = form.value || "";
+}
+
+function quickStartWorkout() {
+  if (location.hash !== "#new-session") location.hash = "#new-session";
+
+  // Esperamos a que la vista se pinte antes de tocar sus controles.
+  setTimeout(() => {
+    const sel = $("#sessionRoutineSelect");
+    if (!sel) return;
+
+    if (!sel.value) sel.value = defaultRoutineIdForToday();
+    if (!sel.value) {
+      toast("Elige una rutina", "Selecciona la plantilla que vas a entrenar.", "warn");
+      $("#startRoutineSelect")?.focus();
+      return;
+    }
+    syncStartRoutineSelect();
+
+    const cards = $$(".exercise-card", $("#sessionExercises"));
+    if (!cards.length) loadExercisesFromSelectedRoutine({ autoStart:true });
+    else WorkoutMode.enter(clamp(Number(State.sessionDraft?.workoutIndex || 0), 0, cards.length - 1));
+  }, 160);
 }
 
 function prefillNewSessionFromRoutine(routineId) {
@@ -3035,7 +3108,7 @@ function prefillNewSessionFromRoutine(routineId) {
   loadExercisesFromSelectedRoutine();
 }
 
-function loadExercisesFromSelectedRoutine() {
+function loadExercisesFromSelectedRoutine(options={}) {
   const routineId = $("#sessionRoutineSelect")?.value;
   if (!routineId) {
     toast("Selecciona rutina", "Primero elige una plantilla.", "warn");
@@ -3083,9 +3156,9 @@ function loadExercisesFromSelectedRoutine() {
   setDraftSession(collectSessionDraftFromUI());
   toast("Ejercicios cargados", r.name, "ok");
 
-  // En móvil, al activar la sesión entramos directo al modo entrenamiento
-  // para ver solo lo necesario y navegar más fácil.
-  if (window.matchMedia("(max-width: 980px)").matches) {
+  // Entramos directo al modo entrenamiento: en móvil siempre (se ve solo lo
+  // necesario) y en escritorio cuando se pidió arrancar de una.
+  if (options.autoStart || window.matchMedia("(max-width: 980px)").matches) {
     setTimeout(() => WorkoutMode.enter(0), 200);
   }
 }
@@ -4159,22 +4232,66 @@ function setupCardioModal(index = -1) {
 
 openCardioModal = setupCardioModal;
 
+/* Avisos del temporizador. Entrenando con música o con el celular en el bolsillo
+   un pitido suave no se oye, así que las alertas son fuertes (onda cuadrada,
+   varios tonos encadenados) y además vibran. El volumen sale de Ajustes. */
 const TimerSounds = {
   context:null,
-  tone(frequency=660, duration=.12) {
+
+  ctx() {
+    this.context ||= new (window.AudioContext || window.webkitAudioContext)();
+    // Android suspende el audio al volver de segundo plano: sin esto el pitido se pierde.
+    if (this.context.state === "suspended") this.context.resume().catch(()=>{});
+    return this.context;
+  },
+
+  get level() { return clamp(Number(State.prefs.alertVolume ?? 85), 0, 100) / 100; },
+
+  tone(frequency=660, duration=.18, { type="square", delay=0, gain=1 }={}) {
     try {
-      this.context ||= new (window.AudioContext || window.webkitAudioContext)();
-      const oscillator = this.context.createOscillator();
-      const gain = this.context.createGain();
-      oscillator.frequency.value = frequency;
-      gain.gain.setValueAtTime(.12, this.context.currentTime);
-      gain.gain.exponentialRampToValueAtTime(.001, this.context.currentTime + duration);
-      oscillator.connect(gain).connect(this.context.destination);
-      oscillator.start(); oscillator.stop(this.context.currentTime + duration);
+      const ctx = this.ctx();
+      const peak = Math.max(.0001, this.level * .6 * gain);
+      const t0 = ctx.currentTime + delay;
+      const osc = ctx.createOscillator();
+      const amp = ctx.createGain();
+      osc.type = type;
+      osc.frequency.value = frequency;
+      amp.gain.setValueAtTime(.0001, t0);
+      amp.gain.exponentialRampToValueAtTime(peak, t0 + .012);
+      amp.gain.exponentialRampToValueAtTime(.0001, t0 + duration);
+      osc.connect(amp).connect(ctx.destination);
+      osc.start(t0); osc.stop(t0 + duration + .02);
     } catch {}
   },
-  success() { [523,659,784].forEach((f,i) => setTimeout(() => this.tone(f,.2), i*130)); }
+
+  buzz(pattern) {
+    if (State.prefs.vibrate === "off") return;
+    try { navigator.vibrate?.(pattern); } catch {}
+  },
+
+  /* Tic de cuenta regresiva (últimos segundos). */
+  tick() { this.tone(880, .14); this.buzz(45); },
+
+  /* Último tic antes de arrancar: más agudo, para distinguirlo. */
+  go() { this.tone(1320, .35, { gain:1.25 }); this.buzz(220); },
+
+  /* Cambio de ejercicio / fin de descanso: lo que hay que oír sí o sí. */
+  alert() {
+    [0, .26, .52].forEach(d => this.tone(988, .3, { delay:d, gain:1.25 }));
+    this.buzz([200,90,200,90,380]);
+  },
+
+  success() {
+    [523,659,784,1047].forEach((f,i) => this.tone(f, .3, { delay:i*.14, gain:1.1 }));
+    this.buzz([120,70,120,70,260]);
+  }
 };
+
+/* Los navegadores solo dejan sonar audio tras un gesto del usuario: en el primer
+   toque despertamos el AudioContext para que el primer pitido no salga mudo. */
+["pointerdown","keydown"].forEach(evt =>
+  document.addEventListener(evt, () => { try { TimerSounds.ctx(); } catch {} }, { once:true })
+);
 
 /* Mensajes de coach: acompañan cada fase del temporizador */
 const CoachMessages = {
@@ -4200,6 +4317,12 @@ const CoachMessages = {
     "Buen trabajo. Ahora descansa de verdad.",
     "Prepárate mentalmente para la siguiente serie."
   ],
+  prepare: [
+    "Colócate y respira. ¡Ya arrancamos!",
+    "Toma posición… empezamos en nada.",
+    "Prepárate: postura lista, mirada al frente.",
+    "Acomódate, que esto ya empieza."
+  ],
   done: [
     "¡Ejercicio completado! 🔥",
     "¡Eso es disciplina pura! 💪",
@@ -4215,25 +4338,55 @@ const CoachMessages = {
 
 const GymTimer = {
   interval:null, remaining:0, total:0, paused:false, mode:"exercise", rest:0, restAfter:0, title:"",
-  sets:1, currentSet:1, exerciseSeconds:0, coachMsg:"", _endTimer:null,
+  sets:1, currentSet:1, exerciseSeconds:0, coachMsg:"", _endTimer:null, _pending:null,
 
   /* Ciclo con series: ejercicio (serie 1) → descanso → ejercicio (serie 2) → … →
      descanso entre ejercicios (restAfter) → siguiente ejercicio.
      `sets` = número de series; `set` = serie actual (interno, para encadenar fases). */
-  start(seconds, { mode="exercise", title="Ejercicio", rest=0, restAfter=0, sets=1, set=1 }={}) {
+  start(seconds, opts={}) {
+    const { mode="exercise", title="Ejercicio", rest=0, restAfter=0, sets=1, set=1 } = opts;
+
+    // Antes de cada ejercicio va una cuenta regresiva para alistarse y empezar a
+    // tiempo. Se salta si el usuario la desactivó en Ajustes.
+    const pre = Math.max(0, Number(State.prefs.countdown ?? 0));
+    if (mode==="exercise" && pre>0 && !opts._prepared) {
+      this._pending = { seconds, opts:{ ...opts, _prepared:true } };
+      return this.start(pre, { ...opts, mode:"prepare", _prepared:true, title });
+    }
+
     this.stop(false); clearTimeout(this._endTimer);
     this.remaining=this.total=Math.max(1,Number(seconds)); this.mode=mode; this.rest=Number(rest||0); this.title=title; this.paused=false;
     this.restAfter=Math.max(0,Number(restAfter||0));
     this.sets=Math.max(1,Number(sets||1)); this.currentSet=clamp(Number(set||1),1,this.sets);
     if (mode==="exercise") this.exerciseSeconds=this.total;
-    this.coachMsg=CoachMessages.pick(mode==="exercise"?"exercise":(mode==="restAfter"?"restAfter":"rest"));
+    this.coachMsg=CoachMessages.pick(
+      mode==="prepare" ? "prepare" : mode==="exercise" ? "exercise" : mode==="restAfter" ? "restAfter" : "rest"
+    );
     $("#floating-timer")?.classList.remove("is-hidden"); this.bind(); this.paint();
-    this.interval=setInterval(() => { if (this.paused) return; this.remaining--; if (this.remaining<=3 && this.remaining>0) TimerSounds.tone(); this.paint(); if (this.remaining<=0) this.finish(); },1000);
+    if (mode==="prepare") TimerSounds.tick();
+    this.interval=setInterval(() => {
+      if (this.paused) return;
+      this.remaining--;
+      // En la cuenta regresiva suena cada segundo; en el resto, solo los últimos 3.
+      if (this.remaining>0 && (this.mode==="prepare" || this.remaining<=3)) TimerSounds.tick();
+      this.paint();
+      if (this.remaining<=0) this.finish();
+    },1000);
   },
 
   finish() {
     clearInterval(this.interval);
     const opts = { title:this.title, rest:this.rest, restAfter:this.restAfter, sets:this.sets };
+
+    // Fin de la cuenta regresiva: arranca el ejercicio que estaba en espera.
+    if (this.mode==="prepare") {
+      const pending = this._pending; this._pending = null;
+      TimerSounds.go();
+      if (pending) setTimeout(() => this.start(pending.seconds, pending.opts), 250);
+      else this.stop();
+      return;
+    }
+
     if (this.mode==="restAfter") { this.endRestAfter(); return; }
     if (this.mode==="exercise") {
       if (this.currentSet < this.sets) {
@@ -4246,7 +4399,7 @@ const GymTimer = {
     } else {
       // Terminó un descanso
       if (this.currentSet < this.sets) {
-        TimerSounds.tone(880,.2);
+        TimerSounds.alert();
         setTimeout(() => this.start(this.exerciseSeconds||this.total,{ ...opts, mode:"exercise", set:this.currentSet+1 }),350);
       } else {
         this.endRest();
@@ -4279,7 +4432,7 @@ const GymTimer = {
 
   /* Terminó el descanso entre ejercicios → avanza al siguiente */
   endRestAfter() {
-    TimerSounds.success();
+    TimerSounds.alert();
     $("#timer-status") && ($("#timer-status").textContent="¡A POR EL SIGUIENTE!");
     $("#timer-display") && ($("#timer-display").textContent="💪");
     $("#timer-progress-fill") && ($("#timer-progress-fill").style.width="100%");
@@ -4293,7 +4446,7 @@ const GymTimer = {
 
   /* Descanso suelto (p. ej. tras marcar una serie manual) */
   endRest() {
-    TimerSounds.success();
+    TimerSounds.alert();
     $("#timer-status") && ($("#timer-status").textContent="¡DESCANSO TERMINADO!");
     $("#timer-display") && ($("#timer-display").textContent="💪");
     $("#timer-coach") && ($("#timer-coach").textContent="¡Vamos con la siguiente serie!");
@@ -4301,17 +4454,31 @@ const GymTimer = {
     this._endTimer = setTimeout(() => this.stop(), 1800);
   },
 
-  stop(hide=true) { clearInterval(this.interval); this.interval=null; if(hide) { clearTimeout(this._endTimer); $("#floating-timer")?.classList.add("is-hidden"); } },
+  stop(hide=true) {
+    clearInterval(this.interval); this.interval=null;
+    if (hide) {
+      clearTimeout(this._endTimer);
+      this._pending = null;   // cerrar el temporizador cancela el ejercicio en espera
+      $("#floating-timer")?.classList.remove("is-prepare");
+      $("#floating-timer")?.classList.add("is-hidden");
+    }
+  },
 
   paint() {
     const multi = this.sets>1;
+    const prep = this.mode==="prepare";
     $("#timer-title").textContent = multi ? `${this.title} · Serie ${this.currentSet} de ${this.sets}` : this.title;
-    $("#timer-status").textContent = this.mode==="restAfter"
-      ? "DESCANSO · VIENE EL SIGUIENTE EJERCICIO"
-      : this.mode==="rest"
-        ? (multi ? `DESCANSO · VIENE SERIE ${this.currentSet+1}` : "DESCANSO")
-        : (multi ? `SERIE ${this.currentSet} · EJERCICIO` : "EJERCICIO");
-    $("#timer-display").textContent=`${String(Math.floor(this.remaining/60)).padStart(2,"0")}:${String(this.remaining%60).padStart(2,"0")}`;
+    $("#timer-status").textContent = prep
+      ? "PREPÁRATE…"
+      : this.mode==="restAfter"
+        ? "DESCANSO · VIENE EL SIGUIENTE EJERCICIO"
+        : this.mode==="rest"
+          ? (multi ? `DESCANSO · VIENE SERIE ${this.currentSet+1}` : "DESCANSO")
+          : (multi ? `SERIE ${this.currentSet} · EJERCICIO` : "EJERCICIO");
+    $("#floating-timer")?.classList.toggle("is-prepare", prep);
+    $("#timer-display").textContent = prep
+      ? String(this.remaining)
+      : `${String(Math.floor(this.remaining/60)).padStart(2,"0")}:${String(this.remaining%60).padStart(2,"0")}`;
     $("#timer-progress-fill").style.width=`${Math.max(0,(this.remaining/this.total)*100)}%`;
     $("#btn-timer-play").textContent=this.paused?"▶️ Continuar":"⏸️ Pausa";
     $("#timer-coach") && ($("#timer-coach").textContent=this.coachMsg||"");
@@ -4612,6 +4779,9 @@ const WorkoutMode = {
 
     const body = $("#workoutBody");
     if (body) body.scrollTop = 0;
+
+    // Recordamos en qué ejercicio va por si se cierra la app.
+    saveWorkoutProgress();
   },
 
   next() {
@@ -4688,6 +4858,9 @@ function decorateExerciseCards() {
           e.currentTarget.classList.contains("is-completed") ? "✓ Completada" : "Toca para completar";
         const done=$$(".btn-set-badge.is-completed",box).length;
         status.textContent=`${done} de ${sets} series completadas`;
+        // Marcar una serie es un click, no un `input`: el autoguardado normal no
+        // se entera, así que guardamos aquí para no perder el avance.
+        saveWorkoutProgress();
         if(done===sets) {
           TimerSounds.success(); status.textContent=`¡Ejercicio completado! ${sets} de ${sets} series`;
           if (restAfter>0) {
@@ -4720,12 +4893,76 @@ function decorateExerciseCards() {
   });
 }
 
+/* ---------------------------
+   AVANCE DEL ENTRENAMIENTO
+   El borrador guarda además qué series llevas marcadas y en qué ejercicio ibas,
+   para que cerrar la app por error no te obligue a volver a marcar todo.
+--------------------------- */
+
+/* Series marcadas de una tarjeta, como lista de booleanos. */
+function cardDoneSets(card) {
+  return $$(".btn-set-badge", card).map(b => b.classList.contains("is-completed"));
+}
+
+/* Repinta las series marcadas sin disparar temporizadores ni sonidos. */
+function applyDoneSetsToCard(card, done) {
+  if (!Array.isArray(done) || !done.length) return;
+  const badges = $$(".btn-set-badge", card);
+  if (!badges.length) return;
+  badges.forEach((badge, i) => {
+    const on = !!done[i];
+    badge.classList.toggle("is-completed", on);
+    const state = badge.querySelector(".btn-set-badge__state");
+    if (state) state.textContent = on ? "✓ Completada" : "Toca para completar";
+  });
+  const status = $(".set-tracker__status", card);
+  const marked = badges.filter(b => b.classList.contains("is-completed")).length;
+  if (status) {
+    status.textContent = marked === badges.length
+      ? `¡Ejercicio completado! ${badges.length} de ${badges.length} series`
+      : `${marked} de ${badges.length} series completadas`;
+  }
+}
+
+/* Guarda el avance al momento (series marcadas, ejercicio actual). */
+function saveWorkoutProgress() {
+  if (State.prefs.autosave !== "on") return;
+  setDraftSession(collectSessionDraftFromUI());
+}
+
+/* ¿Hay un entrenamiento a medias que valga la pena retomar? */
+function draftHasProgress(draft) {
+  if (!draft || !Array.isArray(draft.exercises) || !draft.exercises.length) return false;
+  return draft.exercises.some(ex => (ex.doneSets || []).some(Boolean)) || Number(draft.workoutIndex || 0) > 0;
+}
+
+function draftDoneCount(draft) {
+  return (draft?.exercises || []).filter(ex => {
+    const done = ex.doneSets || [];
+    return done.length > 0 && done.every(Boolean);
+  }).length;
+}
+
+/* Total de series marcadas en el borrador. */
+function draftMarkedSets(draft) {
+  return (draft?.exercises || []).reduce((n, ex) => n + (ex.doneSets || []).filter(Boolean).length, 0);
+}
+
 const originalCollectSessionDraftFromUI = collectSessionDraftFromUI;
 collectSessionDraftFromUI = function() {
   const draft=originalCollectSessionDraftFromUI();
   draft.cardios=(State.cardioListDraft||[]).map(c=>({...c}));
   draft.cardio=draft.cardios[0]||null;
-  draft.exercises.forEach(ex=>{const card=$$(".exercise-card",$("#sessionExercises")).find(c=>c.dataset.exerciseName===ex.name);ex.duration=Number(card?.dataset.duration||0);ex.rest=Number(card?.dataset.rest||0);ex.restAfter=Number(card?.dataset.restAfter||0);});
+  draft.exercises.forEach(ex=>{const card=$$(".exercise-card",$("#sessionExercises")).find(c=>c.dataset.exerciseName===ex.name);ex.duration=Number(card?.dataset.duration||0);ex.rest=Number(card?.dataset.rest||0);ex.restAfter=Number(card?.dataset.restAfter||0);ex.doneSets=card?cardDoneSets(card):[];
+    // Si los botones de serie aún no se han pintado, conservamos el avance ya
+    // guardado en vez de sobrescribirlo con una lista vacía.
+    if (!ex.doneSets.length) {
+      const prev = (State.sessionDraft?.exercises || []).find(p => p.name === ex.name);
+      if (prev?.doneSets?.length) ex.doneSets = prev.doneSets.slice();
+    }
+  });
+  draft.workoutIndex = WorkoutMode.active ? WorkoutMode.index : (State.sessionDraft?.workoutIndex || 0);
+  draft.updatedAt = Date.now();
   return draft;
 };
 
@@ -4735,7 +4972,16 @@ applyDraftToSessionUI = function(draft) {
   // En modo entrenamiento no reconstruimos las tarjetas: se perderían las
   // series marcadas y la posición actual del usuario.
   if (WorkoutMode.active) { renderCardioList(); return; }
-  originalApplyDraftToSessionUI(draft); renderCardioList(); setTimeout(decorateExerciseCards);
+  originalApplyDraftToSessionUI(draft); renderCardioList();
+  setTimeout(() => {
+    decorateExerciseCards();
+    // Las series marcadas se repintan después de crear los botones.
+    const cards = $$(".exercise-card", $("#sessionExercises"));
+    (draft.exercises || []).forEach(ex => {
+      const card = cards.find(c => c.dataset.exerciseName === ex.name);
+      if (card) applyDoneSetsToCard(card, ex.doneSets);
+    });
+  });
 };
 
 document.addEventListener("click", e => {
@@ -5100,6 +5346,7 @@ function bindAuthEvents() {
       hideLoginError();
       resetGoogleBtn();
       toast("Bienvenido 👋", user.displayName || user.email || "", "ok");
+      maybeOfferResumeSession();
     } else {
       // Sin usuario → mostrar login
       Auth.applyUser(null);
@@ -5116,6 +5363,58 @@ function bindAuthEvents() {
     resetGoogleBtn();
     Auth.showLogin();
   });
+}
+
+/* Si la app se cerró con un entrenamiento a medias, preguntamos si continuar en
+   vez de recuperar el borrador en silencio (antes había que adivinar que seguía ahí). */
+let resumeOffered = false;
+async function maybeOfferResumeSession() {
+  if (resumeOffered) return;
+  const draft = State.sessionDraft;
+  if (State.prefs.autosave !== "on" || !draftHasProgress(draft)) return;
+  resumeOffered = true;
+
+  const total = draft.exercises.length;
+  const at = clamp(Number(draft.workoutIndex || 0), 0, Math.max(0, total - 1)) + 1;
+  const done = draftDoneCount(draft);
+  const marked = draftMarkedSets(draft);
+  const name = draft.routineName || "Entrenamiento";
+
+  const partes = [`ibas en el ejercicio ${at} de ${total}`];
+  if (done) partes.push(`${done} ejercicio${done===1?"":"s"} completo${done===1?"":"s"}`);
+  else if (marked) partes.push(`${marked} serie${marked===1?"":"s"} marcada${marked===1?"":"s"}`);
+  if (draft.updatedAt) partes.push(timeAgoLabel(draft.updatedAt));
+
+  const ok = await confirmDialog({
+    title: "Tenías un entrenamiento sin terminar",
+    text: `${name}: ${partes.join(" · ")}. ¿Quieres continuarlo?`,
+    yesText: "Continuar",
+    noText: "Descartar"
+  });
+
+  if (!ok) {
+    clearDraftSession();
+    resetSessionUI();
+    toast("Entrenamiento descartado", "Empiezas de cero.", "ok");
+    return;
+  }
+
+  const index = Number(draft.workoutIndex || 0);
+  location.hash = "#new-session";
+  // Damos tiempo a que la vista se pinte y el borrador se aplique a las tarjetas.
+  setTimeout(() => WorkoutMode.enter(index), 400);
+}
+
+/* "hace 5 min" / "hace 2 h" / "ayer" */
+function timeAgoLabel(ts) {
+  const diff = Math.max(0, Date.now() - Number(ts || 0));
+  const min = Math.round(diff / 60000);
+  if (min < 1) return "hace un momento";
+  if (min < 60) return `hace ${min} min`;
+  const h = Math.round(min / 60);
+  if (h < 24) return `hace ${h} h`;
+  const d = Math.round(h / 24);
+  return d === 1 ? "ayer" : `hace ${d} días`;
 }
 
 /* --------------------------- GLOBAL NAV / INIT --------------------------- */

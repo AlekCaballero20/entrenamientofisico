@@ -1968,6 +1968,23 @@ textarea.input { resize: vertical; min-height: 96px; }
   to { transform: translateY(0) scale(1); opacity: 1; }
 }
 
+/* Cuenta regresiva "prepárate": número gigante y pulso, para verlo de lejos. */
+.floating-timer.is-prepare {
+  border-color: rgba(255, 171, 0, .55);
+  box-shadow: 0 10px 30px rgba(0,0,0,.5), 0 0 0 3px rgba(255, 171, 0, .22);
+}
+.floating-timer.is-prepare .floating-timer__status { color: #ffab00; }
+.floating-timer.is-prepare .floating-timer__clock {
+  font-size: 64px;
+  line-height: 1.05;
+  color: #ffab00;
+  animation: prepPulse .95s ease-in-out infinite;
+}
+@keyframes prepPulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50%      { transform: scale(1.12); opacity: .85; }
+}
+
 .floating-timer.is-hidden {
   display: none !important;
   opacity: 0;
@@ -2707,11 +2724,68 @@ body.workout-open { overflow: hidden; }
   flex: 1 1 45%;
 }
 
+/* En modo entrenamiento la guía (imagen o GIF) se ve grande: es el momento en
+   que de verdad necesitas ver cómo se hace el ejercicio. */
+.session-exercises.is-workout .exercise-card.is-current .exercise-media {
+  margin: 10px 0 14px;
+}
+
 .session-exercises.is-workout .exercise-card.is-current .exercise-media__image {
   width: 100%;
-  max-width: 320px;
+  max-width: 100%;
   height: auto;
-  aspect-ratio: 16 / 10;
+  aspect-ratio: auto;
+  /* Un GIF de técnica no se debe recortar: se muestra completo. */
+  pointer-events: none;
+  background: rgba(0,0,0,.28);
+}
+
+.session-exercises.is-workout .exercise-card.is-current .exercise-media__image img {
+  width: 100%;
+  height: auto;
+  max-height: min(46vh, 420px);
+  object-fit: contain;
+}
+
+/* =========================================================
+   ARRANQUE DIRECTO DEL ENTRENAMIENTO (Nueva sesión)
+========================================================= */
+.start-hero {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(280px, 420px);
+  gap: 18px;
+  align-items: center;
+  margin-bottom: 16px;
+  padding: 20px 22px;
+  border-radius: 20px;
+  border: 1px solid rgba(123,255,182,.34);
+  background: linear-gradient(135deg, rgba(123,255,182,.16), rgba(106,167,255,.14));
+}
+
+.start-hero__title { margin: 0 0 6px; font-size: 1.25rem; }
+.start-hero__text { margin: 0; color: var(--muted); font-size: .88rem; line-height: 1.45; }
+
+.start-hero__actions {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+}
+
+.start-hero__field { flex: 1 1 auto; min-width: 0; }
+.start-hero__field .input { width: 100%; }
+
+.start-hero__btn {
+  flex: 0 0 auto;
+  min-height: 52px;
+  padding-inline: 20px;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+@media (max-width: 820px) {
+  .start-hero { grid-template-columns: 1fr; padding: 16px; }
+  .start-hero__actions { flex-direction: column; align-items: stretch; }
+  .start-hero__btn { width: 100%; justify-content: center; }
 }
 
 /* =========================================================
