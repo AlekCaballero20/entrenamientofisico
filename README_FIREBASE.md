@@ -93,3 +93,29 @@ Validación local:
 npm test --prefix functions
 node --check app.js
 ```
+
+## Ilustraciones compartidas de ejercicios
+
+**Crear imágenes IA** está disponible en el editor y en el detalle de la rutina.
+Cada ejercicio también tiene su propio botón. Las ilustraciones usan un estilo
+plano con dos posturas y flechas de movimiento.
+
+La biblioteca en `exerciseIllustrations` se comparte entre las dos cuentas
+autorizadas. La identidad normaliza tildes, mayúsculas, puntuación y espacios del
+nombre. Los nombres con variantes de equipo o postura siguen siendo distintos.
+Las rutinas antiguas, el entrenamiento, el historial y los selectores consultan
+esa biblioteca. Las imágenes asignadas expresamente a un ejercicio tienen prioridad.
+
+La función `generateExerciseImage` usa la misma clave de Gemini y guarda los
+archivos en `gymos/shared-exercise-images/` de Firebase Storage. Una transacción
+reserva cada generación y evita llamadas simultáneas para el mismo nombre.
+El límite es de 20 intentos nuevos por cuenta y día. La reutilización no consume
+intentos ni llama al modelo. Un error conserva las imágenes ya completadas y
+permite continuar con las pendientes.
+
+Las ilustraciones son generadas por IA y requieren revisión de la postura.
+El nombre y las indicaciones técnicas se envían a Gemini al solicitar una imagen.
+
+```powershell
+firebase deploy --only "functions:generateExerciseImage,firestore:rules" --project gymos-b2e86
+```

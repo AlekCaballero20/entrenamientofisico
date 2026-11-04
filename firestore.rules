@@ -1,6 +1,12 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    match /exerciseIllustrations/{exerciseId} {
+      allow read: if request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email in ["alekcaballeromusic@gmail.com", "catalina.medina.leal@gmail.com"];
+      allow write: if false;
+    }
     // Cada usuario autenticado solo puede leer/escribir su propio documento
     match /users/{uid}/appState/main {
       allow read, write: if request.auth != null && request.auth.uid == uid;

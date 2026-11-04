@@ -16,7 +16,7 @@
 
 'use strict';
 
-const SW_VERSION = 'gymos-v1.10.1-guided-timer'; // súbelo cuando hagas cambios
+const SW_VERSION = 'gymos-v1.11.0-shared-images'; // súbelo cuando hagas cambios
 const PREFIX = 'gymos';
 const CACHE_APP = `${PREFIX}-app-${SW_VERSION}`;
 const CACHE_RUNTIME = `${PREFIX}-runtime-${SW_VERSION}`;
@@ -31,6 +31,7 @@ const APP_SHELL = [
   // JS (tu orden real)
   './firebase-sync.js',
   './app.js',
+  './functions/exercise-identity.js',
 
   // Icons (tu estructura real: /icons)
   './icons/icon-192.png',

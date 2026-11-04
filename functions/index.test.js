@@ -28,7 +28,8 @@ function loadHandler(responseIds = Object.keys(catalog).slice(0, 8)) {
     "firebase-functions/params": { defineSecret: () => ({ value: () => "test-key" }) },
     "firebase-functions/v2/https": { onCall: (options, handler) => handler, HttpsError },
     "firebase-functions/logger": { warn() {} },
-    "./routine": require("./routine")
+    "./routine": require("./routine"),
+    "./images": { createImageGenerator: () => null }
   };
   const sandbox = {
     exports: {}, Intl, Date, Set, AbortSignal,

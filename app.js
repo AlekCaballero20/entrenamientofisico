@@ -24,7 +24,7 @@
 /* ---------------------------
    CONSTANTS / KEYS
 --------------------------- */
-const APP_VERSION = "0.10.1-guided-timer";
+const APP_VERSION = "0.11.0-shared-images";
 
 // Cache interna por usuario: no es un modo local de trabajo, solo evita perder
 // estado temporal mientras Firestore termina de responder.
@@ -498,6 +498,7 @@ async function uploadExerciseImageForRow(row, file, imageInput, nameInput) {
     imageInput.value = "Subiendo imagen…";
     const url = await sync.uploadExerciseImage(file, nameInput?.value || "ejercicio");
     imageInput.value = url;
+    imageInput.dispatchEvent(new Event("input", { bubbles:true }));
     toast("Imagen subida", "Quedó vinculada al ejercicio.", "ok");
   } catch (err) {
     console.error("[Firebase] image upload error", err);
@@ -2382,11 +2383,87 @@ function isHttpUrl(url) {
   }
 }
 
+const sharedExerciseImages = new Map();
+const imageGenerations = new Map();
+let unsubscribeExerciseImages = null;
+
+function exerciseImageUrl(ex) {
+  return cleanMediaUrl(ex?.imageUrl) ||
+    sharedExerciseImages.get(ExerciseIdentity.normalizeExerciseName(ex?.name))?.imageUrl || "";
+}
+
+function refreshExerciseImages() {
+  $$("[data-exercise-media]").forEach(node => {
+    const ex = JSON.parse(node.dataset.exerciseMedia);
+    node.replaceWith(buildExerciseMedia(ex, { compact: node.classList.contains("exercise-media--compact") }));
+  });
+}
+
+function subscribeExerciseImages(user) {
+  unsubscribeExerciseImages?.();
+  unsubscribeExerciseImages = null;
+  sharedExerciseImages.clear();
+  refreshExerciseImages();
+  const sync = window.FirebaseSync;
+  if (!user || !sync?.db) return;
+  unsubscribeExerciseImages = sync.db.collection("exerciseIllustrations").where("status", "==", "ready").onSnapshot(snapshot => {
+    if (sync.currentUser?.uid !== user.uid) return;
+    sharedExerciseImages.clear();
+    snapshot.forEach(doc => {
+      const image = doc.data();
+      sharedExerciseImages.set(image.normalizedName, image);
+    });
+    refreshExerciseImages();
+  }, () => toast("Biblioteca de imágenes", "No pudimos actualizar las imágenes compartidas. Revisa tu conexión.", "warn"));
+}
+
+async function generateExerciseImage(ex) {
+  const sync = window.FirebaseSync;
+  if (!sync?.currentUser || !sync.app?.functions) throw new Error("Inicia sesión para crear imágenes.");
+  const key = ExerciseIdentity.normalizeExerciseName(ex.name);
+  if (sharedExerciseImages.has(key)) return sharedExerciseImages.get(key);
+  if (imageGenerations.has(key)) return imageGenerations.get(key);
+  const uid = sync.currentUser.uid;
+  const pending = (async () => {
+    const call = sync.app.functions("us-central1").httpsCallable("generateExerciseImage", { timeout: 100000 });
+    const { data } = await call({ name: String(ex.name || "").trim(), notes: String(ex.notes || "").slice(0, 800) });
+    if (sync.currentUser?.uid === uid) {
+      sharedExerciseImages.set(data.normalizedName, data);
+      refreshExerciseImages();
+    }
+    return data;
+  })();
+  imageGenerations.set(key, pending);
+  try { return await pending; }
+  finally { imageGenerations.delete(key); }
+}
+
+async function generateRoutineImages(routine, button) {
+  button.disabled = true;
+  let completed = 0;
+  try {
+    for (const ex of routine.exercises || []) {
+      if (!exerciseImageUrl(ex)) {
+        button.textContent = `Creando imagen ${completed + 1} de ${routine.exercises.length}…`;
+        await generateExerciseImage(ex);
+      }
+      completed++;
+    }
+    toast("Imágenes disponibles", "Se reutilizarán automáticamente en los ejercicios con el mismo nombre.", "ok");
+  } catch (error) {
+    toast("Imágenes pendientes", error.message || "Intenta de nuevo para completar las imágenes que faltan.", "warn");
+  } finally {
+    button.disabled = false;
+    button.textContent = "Crear imágenes IA";
+  }
+}
+
 function buildExerciseMedia(ex, options={}) {
-  const imageUrl = cleanMediaUrl(ex?.imageUrl);
+  const imageUrl = exerciseImageUrl(ex);
   const videoUrl = cleanMediaUrl(ex?.videoUrl);
   const compact = !!options.compact;
   const wrap = el("div", { class: compact ? "exercise-media exercise-media--compact" : "exercise-media" });
+  wrap.dataset.exerciseMedia = JSON.stringify({ name: ex?.name || "", imageUrl: ex?.imageUrl || "", videoUrl: ex?.videoUrl || "" });
   let hasMedia = false;
 
   if (imageUrl && isHttpUrl(imageUrl)) {
@@ -2408,7 +2485,7 @@ function buildExerciseMedia(ex, options={}) {
     hasMedia = true;
   }
 
-  if (!hasMedia) return null;
+  wrap.hidden = !hasMedia;
   return wrap;
 }
 
@@ -2459,6 +2536,7 @@ function renderRoutineDetail() {
   });
 
   $("#btnEditRoutine") && ($("#btnEditRoutine").onclick = () => openRoutineModal({ mode:"edit", routine: r }));
+  $("#btnRoutineImages").onclick = event => generateRoutineImages(r, event.currentTarget);
   $("#btnShareRoutine") && ($("#btnShareRoutine").onclick = () => shareRoutine(r));
   $("#btnDuplicateRoutine") && ($("#btnDuplicateRoutine").onclick = () => {
     const copy = duplicateRoutine(r.id);
@@ -2652,6 +2730,7 @@ function openRoutineModal({ mode="new", routine=null } = {}) {
     closeModal("#modalRoutine");
     scheduleRender();
   };
+  $("#btnDraftImages").onclick = event => generateRoutineImages(collectRoutineModalData(), event.currentTarget);
 
   openModal("#modalRoutine");
 }
@@ -2727,6 +2806,32 @@ function renderEditorRow(ex) {
   const restAfter = timeField("restAfter", ex.restAfter);
   const notes = el("input", { class:"input input--sm", type:"text", value: ex.notes || "", placeholder:"Notas", "data-field":"notes" });
   const imageUrl = el("input", { class:"input input--sm", type:"url", value: cleanMediaUrl(ex.imageUrl || ""), placeholder:"URL imagen", "data-field":"imageUrl" });
+  const aiImageBtn = el("button", { class:"btn btn--ghost btn--sm", type:"button", text:"Crear o reutilizar imagen IA" });
+  const imagePreview = el("div", { class:"editor-image-preview" });
+  const updatePreview = () => {
+    imagePreview.replaceChildren(buildExerciseMedia({ name: name.value, imageUrl: imageUrl.value }, { compact:true }));
+  };
+  name.addEventListener("input", updatePreview);
+  imageUrl.addEventListener("input", updatePreview);
+  aiImageBtn.onclick = async () => {
+    if (!name.value.trim()) {
+      toast("Falta el ejercicio", "Escribe su nombre antes de crear la imagen.", "warn");
+      return;
+    }
+    aiImageBtn.disabled = true;
+    aiImageBtn.textContent = "Preparando ilustración…";
+    try {
+      await generateExerciseImage({ name: name.value, notes: notes.value });
+      updatePreview();
+      toast("Imagen disponible", "Los ejercicios con el mismo nombre compartirán esta ilustración.", "ok");
+    } catch (error) {
+      toast("Imagen pendiente", error.message || "Intenta más tarde.", "warn");
+    } finally {
+      aiImageBtn.disabled = false;
+      aiImageBtn.textContent = "Crear o reutilizar imagen IA";
+    }
+  };
+  updatePreview();
   const videoUrl = el("input", { class:"input input--sm", type:"url", value: cleanMediaUrl(ex.videoUrl || ""), placeholder:"Link video", "data-field":"videoUrl" });
   const fileInput = el("input", { type:"file", accept:"image/*", hidden:true, "data-field":"imageFile" });
 
@@ -2739,7 +2844,10 @@ function renderEditorRow(ex) {
     el("span", { class:"icon", text:"🗂️", "aria-hidden":"true" }),
     el("span", { text:"Reutilizar imagen" })
   ]);
-  galleryBtn.onclick = () => openImagePicker(url => { imageUrl.value = url; });
+  galleryBtn.onclick = () => openImagePicker(url => {
+    imageUrl.value = url;
+    updatePreview();
+  });
 
   uploadBtn.onclick = () => fileInput.click();
   fileInput.onchange = () => {
@@ -2807,6 +2915,8 @@ function renderEditorRow(ex) {
   row.appendChild(el("div", { class:"editor-row__head" }, [title, delBtn]));
   row.appendChild(basics);
   row.appendChild(timing);
+  row.appendChild(aiImageBtn);
+  row.appendChild(imagePreview);
   row.appendChild(media);
   row.appendChild(fileInput);
 
@@ -2882,12 +2992,13 @@ function exerciseLibrary(excludeRoutineId=null) {
 function imageLibrary() {
   const seen = new Map();
   const push = (ex) => {
-    const url = cleanMediaUrl(ex?.imageUrl);
+    const url = exerciseImageUrl(ex);
     if (!url || !isHttpUrl(url) || seen.has(url)) return;
     seen.set(url, String(ex.name || "Ejercicio").trim());
   };
   State.routines.forEach(r => (r.exercises || []).forEach(push));
   State.sessions.forEach(s => (s.exercises || []).forEach(push));
+  sharedExerciseImages.forEach(push);
   return [...seen.entries()].map(([url, name]) => ({ url, name }));
 }
 
@@ -2965,8 +3076,9 @@ function openExercisePicker(onPick, excludeRoutineId=null) {
           item.classList.toggle("is-selected", selected.has(key));
           refreshBtn();
         };
-        if (ex.imageUrl && isHttpUrl(ex.imageUrl)) {
-          item.appendChild(el("img", { class:"picker-item__thumb", src:ex.imageUrl, alt:"", loading:"lazy" }));
+        const imageUrl = exerciseImageUrl(ex);
+        if (imageUrl && isHttpUrl(imageUrl)) {
+          item.appendChild(el("img", { class:"picker-item__thumb", src:imageUrl, alt:"", loading:"lazy" }));
         }
         const detail = [
           ex.sets ? `${ex.sets} series` : "",
@@ -5395,6 +5507,7 @@ function bindAuthEvents() {
   // Evento: usuario autenticado (correo en whitelist)
   window.addEventListener("gymos:auth-changed", (e) => {
     const user = e.detail && e.detail.user;
+    subscribeExerciseImages(user);
 
     if (user) {
       // Usuario válido → inicializar app con sus datos

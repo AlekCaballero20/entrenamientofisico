@@ -55,6 +55,7 @@
   <script defer src="https://www.gstatic.com/firebasejs/10.13.2/firebase-functions-compat.js"></script>
   <script defer src="./firebase-sync.js"></script>
 
+  <script defer src="./functions/exercise-identity.js"></script>
   <script defer src="./app.js"></script>
 
   <!-- =========================
@@ -500,6 +501,7 @@
                     </div>
                     <div class="row">
                       <button class="btn" id="btnEditRoutine" type="button">Editar</button>
+                      <button class="btn" id="btnRoutineImages" type="button">Crear imágenes IA</button>
                       <button class="btn btn--ghost" id="btnDuplicateRoutine" type="button">Duplicar</button>
                       <button class="btn btn--ghost" id="btnShareRoutine" type="button">📤 Compartir</button>
                       <button class="btn btn--danger" id="btnDeleteRoutine" type="button">Eliminar</button>
@@ -1201,6 +1203,7 @@
               <span class="icon" aria-hidden="true">♻️</span>
               Reutilizar de otra rutina
             </button>
+            <button id="btnDraftImages" class="btn btn--ghost" type="button">Crear imágenes IA</button>
           </div>
         </div>
 

@@ -7,6 +7,7 @@ const { catalog, supportedMinutes, buildRoutine } = require("./routine");
 
 initializeApp();
 const geminiKey = defineSecret("GEMINI_API_KEY");
+exports.generateExerciseImage = require("./images").createImageGenerator(geminiKey);
 const model = "gemini-3.5-flash-lite";
 const allowedEmails = new Set([
   "alekcaballeromusic@gmail.com",
