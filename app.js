@@ -24,7 +24,7 @@
 /* ---------------------------
    CONSTANTS / KEYS
 --------------------------- */
-const APP_VERSION = "0.12.0-clear-layout";
+const APP_VERSION = "0.12.1-routine-context";
 
 // Cache interna por usuario: no es un modo local de trabajo, solo evita perder
 // estado temporal mientras Firestore termina de responder.
@@ -2704,6 +2704,10 @@ function openRoutineAiModal() {
       $("#routineName").focus();
     } catch (error) {
       if (!isCurrent()) return;
+      if (error.details?.reason === "health-review") {
+        status.textContent = "Antes de crear esta rutina\n" + error.message;
+        return;
+      }
       const knownCodes = ["invalid-argument", "permission-denied", "resource-exhausted", "failed-precondition", "unavailable"];
       const code = error.code?.replace(/^functions\//, "");
       status.textContent = knownCodes.includes(code) && error.message !== code

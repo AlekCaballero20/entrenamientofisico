@@ -66,8 +66,11 @@ Los minutos incluyen series y descansos programados. Las cuentas de preparación
 avisos, pausas manuales y cambios de ejercicio pueden alargar la sesión real.
 
 El catálogo inicial requiere revisión técnica de una persona con formación en
-actividad física. Las peticiones sobre lesiones o dolor se remiten a otro enfoque
-mediante las instrucciones del modelo. Esa clasificación depende de la IA.
+actividad física. La descripción admite hasta 1500 caracteres. La menstruación
+habitual y retomar actividad tras una pausa pueden contextualizar una rutina
+general. El modelo distingue los objetivos fuera del catálogo de los síntomas
+que necesitan valoración individual, y comunica cada caso de forma específica.
+La clasificación depende de la IA.
 
 La función usa Gemini 3.5 Flash-Lite con una clave guardada en Secret Manager.
 Firebase Auth verifica las dos cuentas autorizadas también en el servidor.

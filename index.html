@@ -40,8 +40,8 @@
   <!-- =========================
        PERFORMANCE / CSS
   ========================== -->
-  <link rel="preload" href="./styles.css?v=0.12.0" as="style" />
-  <link rel="stylesheet" href="./styles.css?v=0.12.0" />
+  <link rel="preload" href="./styles.css?v=0.12.1" as="style" />
+  <link rel="stylesheet" href="./styles.css?v=0.12.1" />
 
   <!-- =========================
        JS (orden: Firebase -> app)
@@ -55,8 +55,8 @@
   <script defer src="https://www.gstatic.com/firebasejs/10.13.2/firebase-functions-compat.js"></script>
   <script defer src="./firebase-sync.js"></script>
 
-  <script defer src="./functions/exercise-identity.js?v=0.12.0"></script>
-  <script defer src="./app.js?v=0.12.0"></script>
+  <script defer src="./functions/exercise-identity.js?v=0.12.1"></script>
+  <script defer src="./app.js?v=0.12.1"></script>
 
   <!-- =========================
        Service Worker (PWA)
@@ -1146,7 +1146,8 @@
           </label>
           <label class="field">
             <span class="field__label">¿Qué quieres trabajar?</span>
-            <textarea id="routineAiPrompt" class="input" rows="3" maxlength="300" required placeholder="Ej. Estiramiento fácil de cuerpo completo, con énfasis en piernas y sin usar la pared."></textarea>
+            <textarea id="routineAiPrompt" class="input" rows="5" maxlength="1500" required aria-describedby="routineAiContextHelp" placeholder="Describe quién entrenará, su nivel, el objetivo y el equipo disponible."></textarea>
+            <span id="routineAiContextHelp" class="muted">Hasta 1500 caracteres. Crea una rutina por persona para indicar sus necesidades con claridad.</span>
           </label>
           <p id="routineAiStatus" class="muted" role="status"></p>
           <p class="muted">Hasta 10 intentos diarios por cuenta. Tu descripción se envía a Gemini para preparar el borrador.</p>

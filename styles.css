@@ -3264,6 +3264,7 @@ body.workout-open .music-player { bottom: 84px; }
 .input { min-height: 44px; }
 .preferences-group { min-width: 0; margin: 0; padding: 16px; border: 1px solid var(--line); border-radius: 12px; display: grid; gap: 16px; }
 .preferences-group legend { padding: 0 6px; font-size: 13px; font-weight: 750; }
+#routineAiStatus { white-space: pre-line; line-height: 1.6; }
 .kpi__value { background: none; -webkit-text-fill-color: currentColor; color: var(--text); font-size: 28px; }
 .kpi__hint { line-height: 1.5; }
 

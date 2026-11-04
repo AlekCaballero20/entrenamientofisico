@@ -4,12 +4,12 @@ const fs = require("node:fs");
 const vm = require("node:vm");
 const { catalog } = require("./routine");
 
-function loadHandler(responseIds = Object.keys(catalog).slice(0, 8)) {
+function loadHandler(responseIds = Object.keys(catalog).slice(0, 8), status = "ok") {
   const quota = new Map();
   let providerCalls = 0;
   let transactionQueue = Promise.resolve();
   class HttpsError extends Error {
-    constructor(code, message) { super(message); this.code = code; }
+    constructor(code, message, details) { super(message); this.code = code; this.details = details; }
   }
   const db = {
     collection: () => ({ doc: uid => uid }),
@@ -40,7 +40,7 @@ function loadHandler(responseIds = Object.keys(catalog).slice(0, 8)) {
         ok: true,
         json: async () => ({ candidates: [{
           finishReason: "STOP",
-          content: { parts: [{ text: JSON.stringify(responseIds) }] }
+          content: { parts: [{ text: JSON.stringify({ status, exerciseIds: responseIds }) }] }
         }] })
       };
     }
@@ -71,7 +71,7 @@ test("bloquea cuentas ajenas y correos sin verificar antes de llamar al modelo",
 test("valida las entradas antes de consumir cuota", async () => {
   const { handler, providerCalls } = loadHandler();
   for (const data of [{ minutes: 30, prompt: "Hola" }, { minutes: 20, prompt: " " },
-    { minutes: 20, prompt: "a".repeat(301) }, { minutes: "20", prompt: "Hola" }]) {
+    { minutes: 20, prompt: "a".repeat(1501) }, { minutes: "20", prompt: "Hola" }]) {
     await assert.rejects(handler({ ...request(), data }), { code: "invalid-argument" });
   }
   assert.equal(providerCalls(), 0);
@@ -88,6 +88,21 @@ test("10 solicitudes concurrentes consumen la cuota y la siguiente queda bloquea
 });
 
 test("rechaza selección vacía y ejercicios inventados del proveedor", async () => {
-  await assert.rejects(loadHandler([]).handler(request()), { code: "failed-precondition" });
+  await assert.rejects(loadHandler([]).handler(request()), { code: "unavailable" });
   await assert.rejects(loadHandler(["inventado"]).handler(request()), { code: "unavailable" });
+});
+
+test("admite una descripción de contexto mayor de 300 caracteres", async () => {
+  const req = request();
+  req.data.prompt = "Movilidad suave para principiantes. ".repeat(12);
+  const result = await loadHandler().handler(req);
+  assert.equal(result.exercises.length, 8);
+});
+
+test("diferencia valoración de salud y restricciones fuera del catálogo", async () => {
+  await assert.rejects(loadHandler([], "health_review").handler(request()), error =>
+    error.code === "failed-precondition" && error.details?.reason === "health-review" &&
+    error.message.includes("valoración individual"));
+  await assert.rejects(loadHandler([], "unsupported").handler(request()), error =>
+    error.code === "failed-precondition" && error.details?.reason === "unsupported");
 });
