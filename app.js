@@ -24,7 +24,7 @@
 /* ---------------------------
    CONSTANTS / KEYS
 --------------------------- */
-const APP_VERSION = "0.10.0-routine-ai";
+const APP_VERSION = "0.10.1-guided-timer";
 
 // Cache interna por usuario: no es un modo local de trabajo, solo evita perder
 // estado temporal mientras Firestore termina de responder.
@@ -2450,8 +2450,9 @@ function renderRoutineDetail() {
     tbody.appendChild(el("tr", {}, [
       el("td", { text: ex.name }),
       el("td", { text: String(ex.sets||0) }),
-      el("td", { text: String(ex.reps||"") }),
+      el("td", { text: ex.duration > 0 ? fmtDurationLabel(ex.duration) : String(ex.reps||"") }),
       el("td", { text: `${ex.weight||0} ${ex.unit || State.prefs.unit}` }),
+      el("td", { text: `${fmtDurationLabel(ex.rest || 0)} entre series · ${fmtDurationLabel(ex.restAfter || 0)} al terminar` }),
       el("td", { text: ex.notes || "" }),
       el("td", {}, [guide])
     ]));
@@ -3153,6 +3154,7 @@ function quickStartWorkout() {
 }
 
 function prefillNewSessionFromRoutine(routineId) {
+  renderNewSession();
   $("#sessionRoutineSelect") && ($("#sessionRoutineSelect").value = routineId);
   $("#sessionDate") && ($("#sessionDate").value = todayISO());
   $("#sessionDuration") && ($("#sessionDuration").value = "");
@@ -3291,6 +3293,9 @@ function applyDraftToSessionUI(draft) {
       inputs[3] && (inputs[3].value = ex.notes ?? "");
 
       node.dataset.exerciseName = ex.name;
+      node.dataset.duration = ex.duration ?? 0;
+      node.dataset.rest = ex.rest ?? 0;
+      node.dataset.restAfter = ex.restAfter ?? 0;
       node.dataset.imageUrl = cleanMediaUrl(ex.imageUrl || "");
       node.dataset.videoUrl = cleanMediaUrl(ex.videoUrl || "");
       attachExerciseMediaToCard(node, ex);
@@ -4437,7 +4442,7 @@ const GymTimer = {
     if (this.mode==="prepare") {
       const pending = this._pending; this._pending = null;
       TimerSounds.go();
-      if (pending) setTimeout(() => this.start(pending.seconds, pending.opts), 250);
+      if (pending) this._endTimer = setTimeout(() => this.start(pending.seconds, pending.opts), 250);
       else this.stop();
       return;
     }
@@ -4446,8 +4451,8 @@ const GymTimer = {
     if (this.mode==="exercise") {
       if (this.currentSet < this.sets) {
         TimerSounds.success();
-        if (this.rest>0) setTimeout(() => this.start(this.rest,{ ...opts, mode:"rest", set:this.currentSet }),350);
-        else setTimeout(() => this.start(this.exerciseSeconds,{ ...opts, mode:"exercise", set:this.currentSet+1 }),350);
+        if (this.rest>0) this._endTimer = setTimeout(() => this.start(this.rest,{ ...opts, mode:"rest", set:this.currentSet }),350);
+        else this._endTimer = setTimeout(() => this.start(this.exerciseSeconds,{ ...opts, mode:"exercise", set:this.currentSet+1 }),350);
       } else {
         this.complete();
       }
@@ -4455,7 +4460,7 @@ const GymTimer = {
       // Terminó un descanso
       if (this.currentSet < this.sets) {
         TimerSounds.alert();
-        setTimeout(() => this.start(this.exerciseSeconds||this.total,{ ...opts, mode:"exercise", set:this.currentSet+1 }),350);
+        this._endTimer = setTimeout(() => this.start(this.exerciseSeconds||this.total,{ ...opts, mode:"exercise", set:this.currentSet+1 }),350);
       } else {
         this.endRest();
       }
@@ -4479,10 +4484,10 @@ const GymTimer = {
       return;
     }
 
-    this._endTimer = setTimeout(() => this.stop(), 2600);
-    if (typeof WorkoutMode !== "undefined" && WorkoutMode.active) {
-      setTimeout(() => { if (WorkoutMode.active) WorkoutMode.next(); }, 2200);
-    }
+    this._endTimer = setTimeout(() => {
+      if (WorkoutMode.active) WorkoutMode.next();
+      else this.stop();
+    }, 2200);
   },
 
   /* Terminó el descanso entre ejercicios → avanza al siguiente */
@@ -4493,10 +4498,10 @@ const GymTimer = {
     $("#timer-progress-fill") && ($("#timer-progress-fill").style.width="100%");
     $("#timer-coach") && ($("#timer-coach").textContent="Descanso terminado. Siguiente ejercicio.");
     clearTimeout(this._endTimer);
-    this._endTimer = setTimeout(() => this.stop(), 1800);
-    if (typeof WorkoutMode !== "undefined" && WorkoutMode.active) {
-      setTimeout(() => { if (WorkoutMode.active) WorkoutMode.next(); }, 1400);
-    }
+    this._endTimer = setTimeout(() => {
+      if (WorkoutMode.active) WorkoutMode.next();
+      else this.stop();
+    }, 1400);
   },
 
   /* Descanso suelto (p. ej. tras marcar una serie manual) */
@@ -4792,6 +4797,7 @@ const WorkoutMode = {
 
   exit() {
     if (!this.active) return;
+    GymTimer.stop();
     const wrap = $("#sessionExercises");
     if (wrap) {
       wrap.classList.remove("is-workout");
@@ -4814,6 +4820,7 @@ const WorkoutMode = {
   },
 
   go(i) {
+    GymTimer.stop();
     const cards = this.cards();
     if (!cards.length) { this.exit(); return; }
     this.index = clamp(i, 0, cards.length - 1);
@@ -4837,6 +4844,8 @@ const WorkoutMode = {
 
     // Recordamos en qué ejercicio va por si se cierra la app.
     saveWorkoutProgress();
+    // Cada tarjeta por tiempo inicia sus series y descansos al mostrarse.
+    $(".exercise-action--timer button", cards[this.index])?.click();
   },
 
   next() {
@@ -4846,6 +4855,7 @@ const WorkoutMode = {
   },
 
   async finish() {
+    GymTimer.stop();
     const ok = await confirmDialog({
       title: "Terminar entrenamiento",
       text: "¿Guardar la sesión ahora? Podrás revisar cardio y notas antes si eliges seguir editando.",
@@ -4878,9 +4888,9 @@ function decorateExerciseCards() {
   $$(".exercise-card", $("#sessionExercises")).forEach(card => {
     if (card.dataset.timerReady) return;
     const ex = routine?.exercises?.find(x => x.name === card.dataset.exerciseName) || {};
-    const duration = Number(ex.duration || card.dataset.duration || 0);
-    const rest = Number(ex.rest || card.dataset.rest || 0);
-    const restAfter = Number(ex.restAfter || card.dataset.restAfter || 0);
+    const duration = Number(card.dataset.duration ?? ex.duration ?? 0);
+    const rest = Number(card.dataset.rest ?? ex.rest ?? 0);
+    const restAfter = Number(card.dataset.restAfter ?? ex.restAfter ?? 0);
     card.dataset.duration=duration; card.dataset.rest=rest; card.dataset.restAfter=restAfter; card.dataset.timerReady="1";
     const box=$(".exercise-card__timer-box",card); if(!box) return;
     if(duration>0) {
