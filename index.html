@@ -40,8 +40,8 @@
   <!-- =========================
        PERFORMANCE / CSS
   ========================== -->
-  <link rel="preload" href="./styles.css?v=0.12.1" as="style" />
-  <link rel="stylesheet" href="./styles.css?v=0.12.1" />
+  <link rel="preload" href="./styles.css?v=0.13.0" as="style" />
+  <link rel="stylesheet" href="./styles.css?v=0.13.0" />
 
   <!-- =========================
        JS (orden: Firebase -> app)
@@ -55,8 +55,9 @@
   <script defer src="https://www.gstatic.com/firebasejs/10.13.2/firebase-functions-compat.js"></script>
   <script defer src="./firebase-sync.js"></script>
 
-  <script defer src="./functions/exercise-identity.js?v=0.12.1"></script>
-  <script defer src="./app.js?v=0.12.1"></script>
+  <script defer src="./functions/exercise-identity.js?v=0.13.0"></script>
+  <script defer src="./functions/exercise-catalog.js?v=0.13.0"></script>
+  <script defer src="./app.js?v=0.13.0"></script>
 
   <!-- =========================
        Service Worker (PWA)
@@ -781,6 +782,10 @@
             </div>
           </div>
 
+          <article class="card flexibility-history">
+            <div class="card__head"><h2>Flexibilidad y comodidad</h2><div class="muted">Amplitud, mantenimiento y dificultad registrados por ti</div></div>
+            <div id="flexibilityHistory" class="card__body stack"></div>
+          </article>
           <div class="grid grid--2">
             <article class="card">
               <div class="card__head">
@@ -1134,7 +1139,7 @@
           <button class="icon-btn" type="button" data-close aria-label="Cerrar">✕</button>
         </div>
         <div class="modal__body form">
-          <p class="muted">Estiramiento y movilidad suave de nivel fácil. El tiempo incluye series y descansos programados. La cuenta de preparación y los avisos añaden tiempo.</p>
+          <p class="muted">Flexibilidad, movilidad, danza y recuperación con ejercicios del catálogo. Los tiempos incluyen series y descansos; las cuentas de preparación y los avisos añaden tiempo.</p>
           <label class="field">
             <span class="field__label">Duración (minutos)</span>
             <select id="routineAiMinutes" class="input">
@@ -1144,6 +1149,35 @@
               <option value="25">25</option>
             </select>
           </label>
+          <details class="ai-options">
+            <summary>Filtros obligatorios y progresión</summary>
+            <div class="form">
+              <div class="row row--2">
+                <label class="field"><span class="field__label">Categoría de rutina</span>
+                  <select id="routineAiCategory" class="input"><option value="">Según la descripción</option></select>
+                </label>
+                <label class="field"><span class="field__label">Posiciones permitidas</span>
+                  <select id="routineAiPosition" class="input">
+                    <option value="">Según la descripción</option><option value="suelo">Completamente en el suelo</option>
+                    <option value="sentado_acostado">Solo sentado o acostado</option><option value="sentado">Solo sentado</option>
+                    <option value="acostado">Solo acostado</option><option value="cuatro_apoyos">Solo cuatro apoyos</option><option value="de_pie">Solo de pie</option>
+                  </select>
+                </label>
+              </div>
+              <div class="row row--2">
+                <label class="field"><span class="field__label">Superficie obligatoria</span>
+                  <select id="routineAiSurface" class="input"><option value="">Según la descripción</option><option value="colchoneta">Colchoneta</option><option value="piso">Piso</option><option value="cama_firme">Cama firme y estable</option></select>
+                </label>
+                <label class="field"><span class="field__label">Nivel máximo</span>
+                  <select id="routineAiLevel" class="input"><option value="1">Principiante</option><option value="2">Intermedio</option><option value="3">Avanzado con control</option></select>
+                </label>
+              </div>
+              <label class="field"><span class="field__label">Semana de práctica</span><input id="routineAiWeek" class="input" type="number" value="1" min="1" max="12" step="1" /></label>
+              <label class="check"><input id="routineAiComfort" type="checkbox" /><span>El nivel actual me resulta cómodo y quiero explorar una progresión</span></label>
+              <label class="check"><input id="routineAiNoEquipment" type="checkbox" /><span>Sin equipo</span></label>
+              <p class="muted">Las semanas 1–2 mantienen nivel inicial. Aumentar semanas no obliga a aumentar la amplitud. Solicita un nivel superior solo si la práctica anterior fue cómoda y sin dolor.</p>
+            </div>
+          </details>
           <label class="field">
             <span class="field__label">¿Qué quieres trabajar?</span>
             <textarea id="routineAiPrompt" class="input" rows="5" maxlength="1500" required aria-describedby="routineAiContextHelp" placeholder="Describe quién entrenará, su nivel, el objetivo y el equipo disponible."></textarea>
@@ -1174,6 +1208,7 @@
             <span class="field__label">Nombre</span>
             <input id="routineName" class="input" type="text" placeholder="Ej. Día 1 Pierna (90 min)" />
           </label>
+          <p id="routineGenerationNotes" class="muted"></p>
 
           <div class="row row--2">
             <label class="field">
@@ -1220,7 +1255,7 @@
             </button>
             <button id="btnReuseExercise" class="btn btn--ghost" type="button">
               <span class="icon" aria-hidden="true">♻️</span>
-              Reutilizar de otra rutina
+              Biblioteca y catálogo
             </button>
             <button id="btnDraftImages" class="btn btn--ghost" type="button">Crear imágenes IA</button>
           </div>
@@ -1316,6 +1351,7 @@
         <div class="modal__body">
           <p id="pickerSubtitle" class="muted"></p>
           <input id="pickerSearch" class="input" type="search" placeholder="Buscar…" />
+          <div id="pickerFilters" class="row row--2" hidden></div>
           <div id="pickerList" class="picker-list"></div>
         </div>
         <div id="pickerFoot" class="modal__foot"></div>

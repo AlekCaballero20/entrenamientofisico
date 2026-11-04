@@ -24,7 +24,7 @@
 /* ---------------------------
    CONSTANTS / KEYS
 --------------------------- */
-const APP_VERSION = "0.12.1-routine-context";
+const APP_VERSION = "0.13.0-flexibility-catalog";
 
 // Cache interna por usuario: no es un modo local de trabajo, solo evita perder
 // estado temporal mientras Firestore termina de responder.
@@ -1371,6 +1371,7 @@ function deleteProgram(id) {
 function createRoutine(data) {
   const now = Date.now();
   const r = {
+    ...data,
     id: uid("routine"),
     programId: State.activeProgramId,
     name: String(data.name || "Nueva rutina").trim(),
@@ -1379,6 +1380,7 @@ function createRoutine(data) {
     cardioSuggest: String(data.cardioSuggest || "").trim(),
     equipment: parseEquipmentList(data.equipment),
     exercises: Array.isArray(data.exercises) ? data.exercises.map(x => ({
+      ...x,
       name: String(x.name || "").trim(),
       sets: Number(x.sets || 0),
       reps: String(x.reps || "").trim(),
@@ -1438,6 +1440,7 @@ function duplicateRoutine(id) {
 --------------------------- */
 function createSession(session) {
   const s = {
+    ...session,
     id: uid("sess"),
     date: session.date || todayISO(),
     durationMin: Number(session.durationMin || 0),
@@ -1449,6 +1452,7 @@ function createSession(session) {
     cardio: session.cardio || null,
     cardios: sessionCardios(session).map(c => ({ ...c })),
     exercises: Array.isArray(session.exercises) ? session.exercises.map(ex => ({
+      ...ex,
       name: String(ex.name || "").trim(),
       sets: Number(ex.sets || 0),
       reps: String(ex.reps || "").trim(),
@@ -1608,7 +1612,7 @@ function renderAll() {
   if (State.route === "routines") renderRoutines();
   if (State.route === "new-session") renderNewSession();
   if (State.route === "history") renderHistory();
-  if (State.route === "progress") renderProgress();
+  if (State.route === "progress") { renderProgress(); renderFlexibilityHistory(); }
   if (State.route === "settings") renderSettings();
   if (State.route === "goals") renderGoals();
 }
@@ -1949,6 +1953,7 @@ function planProgression(program) {
   const changes = [];
 
   routinesInProgram(program.id).forEach(r => {
+    if (r.progressionMode === "comfort") return;
     if (cfg.minutes > 0 && Number(r.targetMin || 0) > 0) {
       changes.push({
         routineId: r.id, routineName: r.name, exIndex: -1, exName: "",
@@ -1957,6 +1962,7 @@ function planProgression(program) {
     }
 
     (r.exercises || []).forEach((ex, i) => {
+      if (ex.progressionMode === "comfort") return;
       const weight = Number(ex.weight || 0);
       const duration = Number(ex.duration || 0);
 
@@ -2525,13 +2531,126 @@ function buildExerciseMedia(ex, options={}) {
   return wrap;
 }
 
+function exerciseCatalogDetails(ex) {
+  const record = GymCatalog.findExercise(ex);
+  if (!record) return null;
+  const position = record.position.replaceAll("_", " ");
+  const level = ["", "Principiante", "Intermedio", "Avanzado con control"][record.difficulty];
+  const fields = [
+    ["Categoría", GymCatalog.exerciseCategories[record.category] + " · " + record.subcategory],
+    ["Nivel y posición", level + " · " + position],
+    ["Superficies", record.surfaces.map(value => value.replaceAll("_", " ")).join(", ")],
+    ["Equipo", record.equipment.join(", ") || "Sin equipo"],
+    ["Músculos y articulaciones", record.muscles.join(", ") + " · " + record.joints.join(", ")],
+    ["Modalidad y objetivos", record.modality.replaceAll("_", " ") + " · " + record.goals.map(goal => GymCatalog.categories[goal]).join(", ")],
+    ["Dosis orientativa", record.recommendation.holdSeconds.join("–") + " segundos o " + record.recommendation.repetitions.join("–") + " repeticiones cómodas"],
+    ["Ejecución", record.instructions.join(" ")],
+    ["Errores comunes", record.commonMistakes.join(" ")],
+    ["Precauciones", record.precautions.join(" ")],
+    ["Cuándo evitarlo o consultar", record.contraindications.join(" ")],
+    ["Alternativas", record.alternatives.map(id => GymCatalog.records[id]?.name).filter(Boolean).join(", ")],
+    ["Progresión", record.progression.condition]
+  ];
+  return el("details", { class:"catalog-details" }, [
+    el("summary", { text:"Ficha del ejercicio · " + position }),
+    el("dl", {}, fields.flatMap(([label, value]) => [el("dt", { text:label }), el("dd", { text:value })]))
+  ]);
+}
+
+function appendFlexibilityTracker(card, ex) {
+  const record = GymCatalog.findExercise(ex);
+  if (!record && !ex.flexibilityProgress) return;
+  const previous = State.sessions.slice().sort((a, b) => b.date.localeCompare(a.date))
+    .flatMap(session => (session.exercises || []).map(item => ({ ...item, date:session.date })))
+    .find(item => item.flexibilityProgress &&
+      (ex.catalogId ? item.catalogId === ex.catalogId : GymCatalog.normalizeName(item.name) === GymCatalog.normalizeName(ex.name)));
+  const value = ex.flexibilityProgress || {};
+  const range = el("input", { class:"input", maxlength:"160", "data-flex-field":"comfortableRange", value:value.comfortableRange || "", placeholder:previous?.flexibilityProgress.comfortableRange || "Ej. manos hasta media espinilla, sin tirar" });
+  const hold = el("input", { class:"input", type:"number", min:"0", max:"300", step:"1", "data-flex-field":"holdSeconds", value:value.holdSeconds ?? "", placeholder:"Segundos que mantuviste de forma cómoda" });
+  const difficulty = el("select", { class:"input", "data-flex-field":"perceivedDifficulty" }, [
+    el("option", { value:"", text:"Sin registrar" }),
+    ...["Muy fácil", "Fácil", "Moderado", "Exigente", "Muy exigente"].map((text, index) => el("option", { value:String(index + 1), text }))
+  ]);
+  difficulty.value = value.perceivedDifficulty == null ? "" : String(value.perceivedDifficulty);
+  const comfort = el("select", { class:"input", "data-flex-field":"comfort" }, [
+    el("option", { value:"", text:"Sin registrar" }), el("option", { value:"comfortable", text:"Cómodo, con control" }),
+    el("option", { value:"reduce", text:"Necesito reducir o adaptar" }), el("option", { value:"pain", text:"Apareció dolor: detuve el ejercicio" })
+  ]);
+  comfort.value = value.comfort || "";
+  const field = (text, control) => el("label", { class:"field" }, [el("span", { class:"field__label", text }), control]);
+  const last = previous?.flexibilityProgress;
+  const details = el("details", { class:"flexibility-tracker" }, [
+    el("summary", { text:"Registrar amplitud y comodidad" }),
+    el("div", { class:"form" }, [
+      el("p", { class:"muted", text:last ? "Anterior (" + previous.date + "): " + (last.comfortableRange || "amplitud sin registrar") + " · " + (last.holdSeconds ?? "—") + " s." : "El registro es personal. La amplitud cómoda y el control importan más que llegar a una postura concreta." }),
+      field("Amplitud cómoda observada", range), field("Tiempo real de mantenimiento (segundos)", hold),
+      field("Dificultad percibida", difficulty), field("Cómo se sintió", comfort),
+      el("p", { class:"muted", text:"Si aparece dolor, detén ese movimiento. Mantén o reduce la dificultad antes de considerar otra progresión." })
+    ])
+  ]);
+  $(".exercise-card__body", card)?.appendChild(details);
+}
+
+function readFlexibilityProgress(card) {
+  const read = field => card.querySelector('[data-flex-field="' + field + '"]')?.value || "";
+  if (!["comfortableRange", "holdSeconds", "perceivedDifficulty", "comfort"].some(field => read(field))) return null;
+  const hold = read("holdSeconds");
+  return {
+    comfortableRange: read("comfortableRange").trim().slice(0, 160),
+    holdSeconds: hold === "" ? null : clamp(Number(hold) || 0, 0, 300),
+    perceivedDifficulty: read("perceivedDifficulty") ? Number(read("perceivedDifficulty")) : null,
+    comfort: read("comfort"),
+    catalogLevel: GymCatalog.findExercise(card.exerciseData)?.difficulty || null
+  };
+}
+
+function renderFlexibilityHistory() {
+  const box = $("#flexibilityHistory");
+  if (!box) return;
+  box.replaceChildren();
+  const query = GymCatalog.normalizeName($("#progressSearch")?.value || "");
+  const start = startDateFromRange($("#progressRange")?.value || "30");
+  const entries = State.sessions.slice().sort((a, b) => b.date.localeCompare(a.date))
+    .filter(session => !start || parseISODate(session.date) >= start)
+    .flatMap(session => (session.exercises || []).filter(ex => ex.flexibilityProgress)
+      .map(ex => ({ ...ex, date:session.date })))
+    .filter(ex => !query || GymCatalog.normalizeName(ex.name).includes(query));
+  if (!entries.length) {
+    box.appendChild(el("p", { class:"muted", text:"Durante una sesión, abre «Registrar amplitud y comodidad» en cada ejercicio. Aquí podrás comparar tus registros con el tiempo." }));
+    return;
+  }
+  entries.slice(0, 40).forEach((ex, index) => {
+    const value = ex.flexibilityProgress;
+    const previous = entries.slice(index + 1).find(item =>
+      ex.catalogId ? item.catalogId === ex.catalogId : GymCatalog.normalizeName(item.name) === GymCatalog.normalizeName(ex.name));
+    const comfort = { comfortable:"Cómodo", reduce:"Reducir o adaptar", pain:"Se detuvo por dolor" }[value.comfort] || "Comodidad sin registrar";
+    const evolution = previous?.flexibilityProgress;
+    const comparison = evolution && value.holdSeconds != null && evolution.holdSeconds != null
+      ? "Cambio de mantenimiento respecto al registro anterior: " + (value.holdSeconds - evolution.holdSeconds) + " s."
+      : "El tiempo y la amplitud se comparan con tus propios registros.";
+    box.appendChild(el("article", { class:"flex-history-entry" }, [
+      el("strong", { text:ex.name + " · " + formatDate(ex.date, State.prefs) }),
+      el("p", { text:"Amplitud: " + (value.comfortableRange || "sin registrar") + " · Mantenimiento: " + (value.holdSeconds ?? "—") + " s" }),
+      el("p", { text:"Semana " + (ex.progressionWeek || "sin registrar") + " · Nivel del catálogo: " + (value.catalogLevel ?? "—") +
+        " · Dificultad percibida: " + (value.perceivedDifficulty ?? "—") + "/5 · " + comfort }),
+      el("span", { class:"muted", text:comparison })
+    ]));
+  });
+}
+
 function attachExerciseMediaToCard(card, ex) {
+  card.exerciseData = { ...ex };
   const old = $(".exercise-media", card);
   if (old) old.remove();
   const media = buildExerciseMedia(ex, { compact:false });
   if (!media) return;
   const head = $(".exercise-card__head", card);
   if (head) head.after(media);
+  if (!$(".catalog-details", card)) {
+    const details = exerciseCatalogDetails(ex);
+    if (details) $(".exercise-card__body", card)?.appendChild(details);
+  }
+  if (!$(".flexibility-tracker", card)) appendFlexibilityTracker(card, ex);
 }
 
 function renderRoutineDetail() {
@@ -2558,7 +2677,7 @@ function renderRoutineDetail() {
     imageStatus.textContent = "";
     imageStatus.dataset.routineId = r.id;
   }
-  $("#routineDetailMeta") && ($("#routineDetailMeta").textContent = `${r.tag || "Sin tag"} • ${r.exercises.length} ejercicios • ${r.targetMin || 0} min`);
+  $("#routineDetailMeta") && ($("#routineDetailMeta").textContent = `${r.tag || "Sin tag"} • ${r.exercises.length} ejercicios • ${r.targetMin || 0} min` + (r.progressionWeek ? " • Semana " + r.progressionWeek : ""));
   $("#routineCardio") && ($("#routineCardio").textContent = r.cardioSuggest || "-");
   renderEquipmentChecklist($("#routineEquipmentList"), routineEquipment(r), `routine:${r.id}`);
 
@@ -2568,8 +2687,9 @@ function renderRoutineDetail() {
     tbody.appendChild(el("tr", {}, [
       el("td", {}, [
         el("div", { text: ex.name }),
-        exerciseImageControls(() => ex)
-      ]),
+        exerciseImageControls(() => ex),
+        exerciseCatalogDetails(ex)
+      ].filter(Boolean)),
       el("td", { "data-label":"Series", text: String(ex.sets||0) }),
       el("td", { "data-label":ex.duration > 0 ? "Tiempo por serie" : "Repeticiones", text: ex.duration > 0 ? fmtDurationLabel(ex.duration) : String(ex.reps||"—") }),
       el("td", { "data-label":"Peso", text: `${ex.weight||0} ${ex.unit || State.prefs.unit}` }),
@@ -2677,6 +2797,10 @@ function openRoutineAiModal() {
   const prompt = $("#routineAiPrompt");
   const submit = $("#btnSubmitRoutineAi");
   const status = $("#routineAiStatus");
+  $("#routineAiCategory").replaceChildren(
+    el("option", { value:"", text:"Según la descripción" }),
+    ...Object.entries(GymCatalog.categories).map(([value, text]) => el("option", { value, text }))
+  );
   form.reset();
   submit.disabled = false;
   status.textContent = "";
@@ -2697,7 +2821,15 @@ function openRoutineAiModal() {
       sync.currentUser?.uid === user.uid;
     try {
       const call = sync.app.functions("us-central1").httpsCallable("generateRoutine", { timeout: 35000 });
-      const { data } = await call({ minutes: Number($("#routineAiMinutes").value), prompt: description });
+      const { data } = await call({
+        minutes: Number($("#routineAiMinutes").value), prompt: description,
+        options: {
+          category: $("#routineAiCategory").value, position: $("#routineAiPosition").value,
+          surface: $("#routineAiSurface").value, maxLevel: Number($("#routineAiLevel").value),
+          week: Number($("#routineAiWeek").value), progressComfortable: $("#routineAiComfort").checked,
+          noEquipment: $("#routineAiNoEquipment").checked
+        }
+      });
       if (!isCurrent()) return;
       closeModal("#modalRoutineAi");
       openRoutineModal({ mode:"draft", routine: data });
@@ -2725,6 +2857,8 @@ function openRoutineAiModal() {
 function openRoutineModal({ mode="new", routine=null } = {}) {
   const m = $("#modalRoutine");
   if (!m) return;
+  m.routineData = routine ? { ...routine } : {};
+  $("#routineGenerationNotes").textContent = (routine?.generationNotes || []).join(" ");
 
   const isEdit = mode === "edit" && routine;
   $("#modalRoutineTitle").textContent = isEdit ? "Editar rutina" : mode === "draft" ? "Revisar borrador de IA" : "Nueva rutina";
@@ -2845,6 +2979,7 @@ function fmtDurationLabel(secs) {
 
 function renderEditorRow(ex) {
   const row = el("div", { class:"editor-row" });
+  row.exerciseData = { ...ex };
 
   const name = el("input", { class:"input input--sm", type:"text", value: ex.name || "", placeholder:"Ejercicio", "data-field":"name" });
   const sets = el("input", { class:"input input--sm", type:"number", min:"0", step:"1", value: ex.sets ?? 0, placeholder:"Sets", "data-field":"sets" });
@@ -2948,6 +3083,8 @@ function renderEditorRow(ex) {
   row.appendChild(basics);
   row.appendChild(timing);
   row.appendChild(imagePreview);
+  const catalogDetails = exerciseCatalogDetails(ex);
+  if (catalogDetails) row.appendChild(catalogDetails);
   row.appendChild(media);
   row.appendChild(fileInput);
 
@@ -2973,6 +3110,7 @@ function collectRoutineModalData() {
     const videoUrl = getField(row, "videoUrl");
 
     return {
+      ...row.exerciseData,
       name: String(name).trim(),
       sets: Number(sets || 0),
       reps: String(reps).trim(),
@@ -2988,6 +3126,7 @@ function collectRoutineModalData() {
   }).filter(x => x.name);
 
   return {
+    ...$("#modalRoutine").routineData,
     name: $("#routineName").value,
     targetMin: Number($("#routineTargetMin").value || 0),
     tag: $("#routineTag").value,
@@ -3017,6 +3156,10 @@ function exerciseLibrary(excludeRoutineId=null) {
       out.push({ ...withExerciseMedia(ex), name, routineName: r.name || "Rutina" });
     });
   });
+  Object.values(GymCatalog.records).forEach(record => {
+    if (out.some(ex => GymCatalog.normalizeName(ex.name) === GymCatalog.normalizeName(record.name))) return;
+    out.push({ ...GymCatalog.toExercise(record), routineName: "Catálogo · " + GymCatalog.exerciseCategories[record.category] });
+  });
   return out.sort((a, b) => a.name.localeCompare(b.name, "es"));
 }
 
@@ -3042,7 +3185,7 @@ function closePicker() {
   $("#pickerFoot").innerHTML = "";
 }
 
-function openPicker({ title, subtitle, searchPlaceholder, renderList, footer=null }) {
+function openPicker({ title, subtitle, searchPlaceholder, renderList, footer=null, filters=null }) {
   const m = $("#modalPicker");
   if (!m) return;
   $("#modalPickerTitle").textContent = title;
@@ -3051,7 +3194,10 @@ function openPicker({ title, subtitle, searchPlaceholder, renderList, footer=nul
   search.placeholder = searchPlaceholder || "Buscar…";
   search.value = "";
   const list = $("#pickerList");
+  $("#pickerFilters").replaceChildren(...(filters ? [filters] : []));
+  $("#pickerFilters").hidden = !filters;
   const paint = () => renderList(list, search.value.toLowerCase().trim());
+  if (filters) $$("select", filters).forEach(select => select.onchange = paint);
   search.oninput = paint;
   paint();
   const foot = $("#pickerFoot");
@@ -3064,6 +3210,14 @@ function openPicker({ title, subtitle, searchPlaceholder, renderList, footer=nul
 
 function openExercisePicker(onPick, excludeRoutineId=null) {
   const library = exerciseLibrary(excludeRoutineId);
+  const categoryFilter = el("select", { class:"input", "aria-label":"Categoría de ejercicio" }, [
+    el("option", { value:"", text:"Todas las categorías" }),
+    ...Object.entries(GymCatalog.exerciseCategories).map(([value, text]) => el("option", { value, text }))
+  ]);
+  const positionFilter = el("select", { class:"input", "aria-label":"Posición del ejercicio" }, [
+    el("option", { value:"", text:"Todas las posiciones" }),
+    ...GymCatalog.positions.map(value => el("option", { value, text:value.replaceAll("_", " ") }))
+  ]);
   if (!library.length) {
     toast("Sin ejercicios", "Aún no hay ejercicios en otras rutinas.", "warn");
     return;
@@ -3083,15 +3237,19 @@ function openExercisePicker(onPick, excludeRoutineId=null) {
   };
 
   openPicker({
-    title: "♻️ Reutilizar ejercicios",
-    subtitle: "Copia ejercicios ya creados en otras rutinas, con sus series, tiempos e imagen.",
-    searchPlaceholder: "Buscar por nombre o rutina…",
+    title: "Biblioteca y catálogo de ejercicios",
+    subtitle: "Elige ejercicios guardados o del catálogo. Puedes filtrar por categoría y posición.",
+    searchPlaceholder: "Buscar por nombre, grupo muscular o categoría…",
+    filters: el("div", { class:"row row--2" }, [categoryFilter, positionFilter]),
     footer: confirmBtn,
     renderList(list, q) {
       list.innerHTML = "";
-      const rows = library.filter(ex =>
-        !q || ex.name.toLowerCase().includes(q) || String(ex.routineName).toLowerCase().includes(q)
-      );
+      const rows = library.filter(ex => {
+        const record = GymCatalog.findExercise(ex);
+        if (categoryFilter.value && record?.category !== categoryFilter.value) return false;
+        if (positionFilter.value && record?.position !== positionFilter.value) return false;
+        return !q || GymCatalog.normalizeName([ex.name, ex.routineName, record?.subcategory, ...(record?.muscles || [])].join(" ")).includes(GymCatalog.normalizeName(q));
+      });
       if (!rows.length) {
         list.appendChild(el("div", { class:"muted", text:"Sin resultados." }));
         return;
@@ -3387,6 +3545,8 @@ function collectSessionDraftFromUI() {
     const name = card.dataset.exerciseName || $(".exercise-card__name", card)?.textContent || "";
     const inputs = $$("input", card);
     return {
+      ...card.exerciseData,
+      ...($(".flexibility-tracker", card) ? { flexibilityProgress: readFlexibilityProgress(card) } : {}),
       name: String(name).trim(),
       sets: Number(inputs[0]?.value || 0),
       reps: String(inputs[1]?.value || "").trim(),
@@ -5038,7 +5198,7 @@ function decorateExerciseCards() {
   const routine = State.routines.find(r => r.id === $("#sessionRoutineSelect")?.value);
   $$(".exercise-card", $("#sessionExercises")).forEach(card => {
     if (card.dataset.timerReady) return;
-    const ex = routine?.exercises?.find(x => x.name === card.dataset.exerciseName) || {};
+    const ex = card.exerciseData || routine?.exercises?.find(x => x.name === card.dataset.exerciseName) || {};
     const duration = Number(card.dataset.duration ?? ex.duration ?? 0);
     const rest = Number(card.dataset.rest ?? ex.rest ?? 0);
     const restAfter = Number(card.dataset.restAfter ?? ex.restAfter ?? 0);
@@ -5169,11 +5329,12 @@ collectSessionDraftFromUI = function() {
   const draft=originalCollectSessionDraftFromUI();
   draft.cardios=(State.cardioListDraft||[]).map(c=>({...c}));
   draft.cardio=draft.cardios[0]||null;
-  draft.exercises.forEach(ex=>{const card=$$(".exercise-card",$("#sessionExercises")).find(c=>c.dataset.exerciseName===ex.name);ex.duration=Number(card?.dataset.duration||0);ex.rest=Number(card?.dataset.rest||0);ex.restAfter=Number(card?.dataset.restAfter||0);ex.doneSets=card?cardDoneSets(card):[];
+  const cards = $$(".exercise-card", $("#sessionExercises"));
+  draft.exercises.forEach((ex, index)=>{const card=cards[index];ex.duration=Number(card?.dataset.duration||0);ex.rest=Number(card?.dataset.rest||0);ex.restAfter=Number(card?.dataset.restAfter||0);ex.doneSets=card?cardDoneSets(card):[];
     // Si los botones de serie aún no se han pintado, conservamos el avance ya
     // guardado en vez de sobrescribirlo con una lista vacía.
     if (!ex.doneSets.length) {
-      const prev = (State.sessionDraft?.exercises || []).find(p => p.name === ex.name);
+      const prev = State.sessionDraft?.exercises?.[index];
       if (prev?.doneSets?.length) ex.doneSets = prev.doneSets.slice();
     }
   });
@@ -5193,8 +5354,8 @@ applyDraftToSessionUI = function(draft) {
     decorateExerciseCards();
     // Las series marcadas se repintan después de crear los botones.
     const cards = $$(".exercise-card", $("#sessionExercises"));
-    (draft.exercises || []).forEach(ex => {
-      const card = cards.find(c => c.dataset.exerciseName === ex.name);
+    (draft.exercises || []).forEach((ex, index) => {
+      const card = cards[index];
       if (card) applyDoneSetsToCard(card, ex.doneSets);
     });
   });

@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const vm = require("node:vm");
 const { catalog } = require("./routine");
 
-function loadHandler(responseIds = Object.keys(catalog).slice(0, 8), status = "ok") {
+function loadHandler(responseIds = Object.keys(catalog).slice(0, 8), status = "ok", extra = {}) {
   const quota = new Map();
   let providerCalls = 0;
   let transactionQueue = Promise.resolve();
@@ -29,6 +29,7 @@ function loadHandler(responseIds = Object.keys(catalog).slice(0, 8), status = "o
     "firebase-functions/v2/https": { onCall: (options, handler) => handler, HttpsError },
     "firebase-functions/logger": { warn() {} },
     "./routine": require("./routine"),
+    "./exercise-catalog": require("./exercise-catalog"),
     "./images": { createImageGenerator: () => null }
   };
   const sandbox = {
@@ -40,7 +41,7 @@ function loadHandler(responseIds = Object.keys(catalog).slice(0, 8), status = "o
         ok: true,
         json: async () => ({ candidates: [{
           finishReason: "STOP",
-          content: { parts: [{ text: JSON.stringify({ status, exerciseIds: responseIds }) }] }
+          content: { parts: [{ text: JSON.stringify({ status, exerciseIds: responseIds, ...extra }) }] }
         }] })
       };
     }
@@ -87,9 +88,12 @@ test("10 solicitudes concurrentes consumen la cuota y la siguiente queda bloquea
   assert.equal(providerCalls(), 11);
 });
 
-test("rechaza selección vacía y ejercicios inventados del proveedor", async () => {
-  await assert.rejects(loadHandler([]).handler(request()), { code: "unavailable" });
-  await assert.rejects(loadHandler(["inventado"]).handler(request()), { code: "unavailable" });
+test("completa una selección vacía o inventada con ejercicios reales compatibles", async () => {
+  for (const ids of [[], ["inventado"]]) {
+    const result = await loadHandler(ids).handler(request());
+    assert.equal(result.exercises.length, 8);
+    assert.ok(result.exercises.every(ex => Object.hasOwn(catalog, ex.catalogId)));
+  }
 });
 
 test("admite una descripción de contexto mayor de 300 caracteres", async () => {
@@ -103,6 +107,6 @@ test("diferencia valoración de salud y restricciones fuera del catálogo", asyn
   await assert.rejects(loadHandler([], "health_review").handler(request()), error =>
     error.code === "failed-precondition" && error.details?.reason === "health-review" &&
     error.message.includes("valoración individual"));
-  await assert.rejects(loadHandler([], "unsupported").handler(request()), error =>
+  await assert.rejects(loadHandler([], "unsupported", { unavailableRequirement: "trabajo dentro de una piscina" }).handler(request()), error =>
     error.code === "failed-precondition" && error.details?.reason === "unsupported");
 });

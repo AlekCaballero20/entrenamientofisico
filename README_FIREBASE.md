@@ -72,6 +72,38 @@ general. El modelo distingue los objetivos fuera del catálogo de los síntomas
 que necesitan valoración individual, y comunica cada caso de forma específica.
 La clasificación depende de la IA.
 
+El catálogo estructurado está en `functions/exercise-catalog.js`, compartido
+por el navegador y el servidor. Contiene 63 fichas con posición, superficie,
+nivel, equipo, modalidad, grupos musculares, articulaciones, dosis orientativa,
+indicaciones, errores, precauciones y alternativas. Los 14 IDs y nombres del
+catálogo inicial conservan su identidad.
+
+El generador interpreta el texto con Gemini y aplica los filtros obligatorios
+en `functions/routine-planner.js`. Una propuesta incompatible se sustituye
+por una ficha compatible. Las preferencias se usan para priorizar opciones.
+Las combinaciones imposibles se explican para poder ajustar los filtros.
+
+La biblioteca del editor incluye las fichas y permite buscar por categoría,
+posición y grupo muscular. Cada ejercicio guarda su `catalogId` y un resumen
+de metadatos para evitar repetir la ficha completa en cada sesión.
+
+La progresión de flexibilidad es optativa. Las semanas 1–2 usan nivel inicial,
+las semanas 3–4 permiten explorar nivel intermedio y desde la semana 5 se
+pueden explorar variantes de mayor control, dentro del nivel máximo elegido
+y con confirmación de comodidad. No se asignan objetivos obligatorios de
+amplitud. Durante la sesión se pueden registrar amplitud cómoda, mantenimiento
+real, dificultad percibida y comodidad; se comparan en Progreso.
+
+Se conserva el formato de datos existente. Los campos adicionales se mantienen
+al editar, importar, copiar y guardar rutinas o sesiones. La progresión de
+fuerza existente se mantiene para las rutinas anteriores; las nuevas rutinas
+marcadas `progressionMode: comfort` se ajustan mediante el flujo de flexibilidad.
+
+Las indicaciones generales de amplitud cómoda, aumento gradual y preparación
+previa se contrastaron con [NHS](https://www.nhs.uk/live-well/exercise/flexibility-exercises/),
+[AAOS](https://www.orthoinfo.org/recovery/hip-conditioning-program) e
+[IADMS](https://iadms.org/media/3598/iadms-resource-paper-the-importance-of-a-good-warm-up.pdf).
+
 La función usa Gemini 3.5 Flash-Lite con una clave guardada en Secret Manager.
 Firebase Auth verifica las dos cuentas autorizadas también en el servidor.
 Una transacción de Firestore limita a 10 intentos diarios por usuario, según
