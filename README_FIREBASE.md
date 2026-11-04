@@ -104,7 +104,8 @@ La biblioteca en `exerciseIllustrations` se comparte entre las dos cuentas
 autorizadas. La identidad normaliza tildes, mayúsculas, puntuación y espacios del
 nombre. Los nombres con variantes de equipo o postura siguen siendo distintos.
 Las rutinas antiguas, el entrenamiento, el historial y los selectores consultan
-esa biblioteca. Las imágenes asignadas expresamente a un ejercicio tienen prioridad.
+esa biblioteca. Las ilustraciones compartidas tienen prioridad visual y los
+enlaces guardados sirven de respaldo cuando falta una ilustración compartida.
 
 La función `generateExerciseImage` usa la misma clave de Gemini y guarda los
 archivos en `gymos/shared-exercise-images/` de Firebase Storage. Una transacción

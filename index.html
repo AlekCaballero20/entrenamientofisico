@@ -55,8 +55,8 @@
   <script defer src="https://www.gstatic.com/firebasejs/10.13.2/firebase-functions-compat.js"></script>
   <script defer src="./firebase-sync.js"></script>
 
-  <script defer src="./functions/exercise-identity.js"></script>
-  <script defer src="./app.js"></script>
+  <script defer src="./functions/exercise-identity.js?v=0.11.1"></script>
+  <script defer src="./app.js?v=0.11.1"></script>
 
   <!-- =========================
        Service Worker (PWA)
@@ -509,6 +509,7 @@
                   </div>
 
                   <div class="routine-detail__body">
+                    <p id="routineImageStatus" class="muted" role="status"></p>
                     <div class="subhead">Cardio sugerido</div>
                     <div class="muted" id="routineCardio">-</div>
 
@@ -1205,6 +1206,7 @@
             </button>
             <button id="btnDraftImages" class="btn btn--ghost" type="button">Crear imágenes IA</button>
           </div>
+          <p id="draftImageStatus" class="muted" role="status"></p>
         </div>
 
         <div class="modal__foot">

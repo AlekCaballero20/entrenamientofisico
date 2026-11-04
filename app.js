@@ -24,7 +24,7 @@
 /* ---------------------------
    CONSTANTS / KEYS
 --------------------------- */
-const APP_VERSION = "0.11.0-shared-images";
+const APP_VERSION = "0.11.1-image-controls";
 
 // Cache interna por usuario: no es un modo local de trabajo, solo evita perder
 // estado temporal mientras Firestore termina de responder.
@@ -2388,8 +2388,8 @@ const imageGenerations = new Map();
 let unsubscribeExerciseImages = null;
 
 function exerciseImageUrl(ex) {
-  return cleanMediaUrl(ex?.imageUrl) ||
-    sharedExerciseImages.get(ExerciseIdentity.normalizeExerciseName(ex?.name))?.imageUrl || "";
+  const shared = sharedExerciseImages.get(ExerciseIdentity.normalizeExerciseName(ex?.name))?.imageUrl;
+  return shared || cleanMediaUrl(ex?.imageUrl);
 }
 
 function refreshExerciseImages() {
@@ -2421,7 +2421,7 @@ async function generateExerciseImage(ex) {
   const sync = window.FirebaseSync;
   if (!sync?.currentUser || !sync.app?.functions) throw new Error("Inicia sesión para crear imágenes.");
   const key = ExerciseIdentity.normalizeExerciseName(ex.name);
-  if (sharedExerciseImages.has(key)) return sharedExerciseImages.get(key);
+  if (sharedExerciseImages.has(key)) return { ...sharedExerciseImages.get(key), reused: true };
   if (imageGenerations.has(key)) return imageGenerations.get(key);
   const uid = sync.currentUser.uid;
   const pending = (async () => {
@@ -2438,19 +2438,53 @@ async function generateExerciseImage(ex) {
   finally { imageGenerations.delete(key); }
 }
 
-async function generateRoutineImages(routine, button) {
+function exerciseImageControls(getExercise) {
+  const status = el("span", { class:"muted exercise-image-status", role:"status" });
+  const button = el("button", { class:"btn btn--ghost btn--sm", type:"button", text:"Crear imagen IA" });
+  button.onclick = async () => {
+    const ex = getExercise();
+    if (!String(ex.name || "").trim()) {
+      status.textContent = "Escribe el nombre del ejercicio.";
+      return;
+    }
+    button.disabled = true;
+    button.textContent = "Creando imagen…";
+    status.textContent = "Preparando la ilustración. Puede tardar alrededor de un minuto.";
+    try {
+      const image = await generateExerciseImage(ex);
+      status.textContent = image.reused ? "Imagen reutilizada de la biblioteca." : "Imagen creada y vinculada a los ejercicios con este nombre.";
+    } catch (error) {
+      status.textContent = error.message || "No pudimos crear la imagen. Intenta de nuevo.";
+    } finally {
+      button.disabled = false;
+      button.textContent = "Crear imagen IA";
+    }
+  };
+  return el("div", { class:"exercise-image-controls" }, [button, status]);
+}
+
+async function generateRoutineImages(routine, button, status) {
+  const exercises = routine.exercises || [];
+  if (!exercises.length) {
+    status.textContent = "Agrega al menos un ejercicio con nombre para crear sus imágenes.";
+    return;
+  }
   button.disabled = true;
   let completed = 0;
+  let created = 0;
+  status.textContent = "Buscando imágenes en la biblioteca…";
   try {
-    for (const ex of routine.exercises || []) {
-      if (!exerciseImageUrl(ex)) {
-        button.textContent = `Creando imagen ${completed + 1} de ${routine.exercises.length}…`;
-        await generateExerciseImage(ex);
-      }
+    for (const ex of exercises) {
+      button.textContent = `Imagen ${completed + 1} de ${exercises.length}…`;
+      status.textContent = `Preparando ${ex.name}. Las imágenes aparecen a medida que se completan.`;
+      const image = await generateExerciseImage(ex);
+      if (!image.reused) created++;
       completed++;
     }
+    status.textContent = `${completed} imágenes disponibles. ${created} nuevas y ${completed - created} reutilizadas.`;
     toast("Imágenes disponibles", "Se reutilizarán automáticamente en los ejercicios con el mismo nombre.", "ok");
   } catch (error) {
+    status.textContent = `${completed} de ${exercises.length} listas. ${error.message || "Intenta de nuevo para continuar."}`;
     toast("Imágenes pendientes", error.message || "Intenta de nuevo para completar las imágenes que faltan.", "warn");
   } finally {
     button.disabled = false;
@@ -2517,6 +2551,11 @@ function renderRoutineDetail() {
   detail.classList.remove("is-hidden");
 
   $("#routineDetailName") && ($("#routineDetailName").textContent = r.name);
+  const imageStatus = $("#routineImageStatus");
+  if (imageStatus.dataset.routineId !== r.id) {
+    imageStatus.textContent = "";
+    imageStatus.dataset.routineId = r.id;
+  }
   $("#routineDetailMeta") && ($("#routineDetailMeta").textContent = `${r.tag || "Sin tag"} • ${r.exercises.length} ejercicios • ${r.targetMin || 0} min`);
   $("#routineCardio") && ($("#routineCardio").textContent = r.cardioSuggest || "-");
   renderEquipmentChecklist($("#routineEquipmentList"), routineEquipment(r), `routine:${r.id}`);
@@ -2525,7 +2564,10 @@ function renderRoutineDetail() {
   r.exercises.forEach(ex => {
     const guide = buildExerciseMedia(ex, { compact:true }) || el("span", { class:"muted", text:"—" });
     tbody.appendChild(el("tr", {}, [
-      el("td", { text: ex.name }),
+      el("td", {}, [
+        el("div", { text: ex.name }),
+        exerciseImageControls(() => ex)
+      ]),
       el("td", { text: String(ex.sets||0) }),
       el("td", { text: ex.duration > 0 ? fmtDurationLabel(ex.duration) : String(ex.reps||"") }),
       el("td", { text: `${ex.weight||0} ${ex.unit || State.prefs.unit}` }),
@@ -2536,7 +2578,7 @@ function renderRoutineDetail() {
   });
 
   $("#btnEditRoutine") && ($("#btnEditRoutine").onclick = () => openRoutineModal({ mode:"edit", routine: r }));
-  $("#btnRoutineImages").onclick = event => generateRoutineImages(r, event.currentTarget);
+  $("#btnRoutineImages").onclick = event => generateRoutineImages(r, event.currentTarget, $("#routineImageStatus"));
   $("#btnShareRoutine") && ($("#btnShareRoutine").onclick = () => shareRoutine(r));
   $("#btnDuplicateRoutine") && ($("#btnDuplicateRoutine").onclick = () => {
     const copy = duplicateRoutine(r.id);
@@ -2730,7 +2772,8 @@ function openRoutineModal({ mode="new", routine=null } = {}) {
     closeModal("#modalRoutine");
     scheduleRender();
   };
-  $("#btnDraftImages").onclick = event => generateRoutineImages(collectRoutineModalData(), event.currentTarget);
+  $("#draftImageStatus").textContent = "";
+  $("#btnDraftImages").onclick = event => generateRoutineImages(collectRoutineModalData(), event.currentTarget, $("#draftImageStatus"));
 
   openModal("#modalRoutine");
 }
@@ -2806,31 +2849,13 @@ function renderEditorRow(ex) {
   const restAfter = timeField("restAfter", ex.restAfter);
   const notes = el("input", { class:"input input--sm", type:"text", value: ex.notes || "", placeholder:"Notas", "data-field":"notes" });
   const imageUrl = el("input", { class:"input input--sm", type:"url", value: cleanMediaUrl(ex.imageUrl || ""), placeholder:"URL imagen", "data-field":"imageUrl" });
-  const aiImageBtn = el("button", { class:"btn btn--ghost btn--sm", type:"button", text:"Crear o reutilizar imagen IA" });
+  const aiImageControls = exerciseImageControls(() => ({ name: name.value, notes: notes.value }));
   const imagePreview = el("div", { class:"editor-image-preview" });
   const updatePreview = () => {
     imagePreview.replaceChildren(buildExerciseMedia({ name: name.value, imageUrl: imageUrl.value }, { compact:true }));
   };
   name.addEventListener("input", updatePreview);
   imageUrl.addEventListener("input", updatePreview);
-  aiImageBtn.onclick = async () => {
-    if (!name.value.trim()) {
-      toast("Falta el ejercicio", "Escribe su nombre antes de crear la imagen.", "warn");
-      return;
-    }
-    aiImageBtn.disabled = true;
-    aiImageBtn.textContent = "Preparando ilustración…";
-    try {
-      await generateExerciseImage({ name: name.value, notes: notes.value });
-      updatePreview();
-      toast("Imagen disponible", "Los ejercicios con el mismo nombre compartirán esta ilustración.", "ok");
-    } catch (error) {
-      toast("Imagen pendiente", error.message || "Intenta más tarde.", "warn");
-    } finally {
-      aiImageBtn.disabled = false;
-      aiImageBtn.textContent = "Crear o reutilizar imagen IA";
-    }
-  };
   updatePreview();
   const videoUrl = el("input", { class:"input input--sm", type:"url", value: cleanMediaUrl(ex.videoUrl || ""), placeholder:"Link video", "data-field":"videoUrl" });
   const fileInput = el("input", { type:"file", accept:"image/*", hidden:true, "data-field":"imageFile" });
@@ -2913,9 +2938,9 @@ function renderEditorRow(ex) {
     ])
   ]);
   row.appendChild(el("div", { class:"editor-row__head" }, [title, delBtn]));
+  row.appendChild(aiImageControls);
   row.appendChild(basics);
   row.appendChild(timing);
-  row.appendChild(aiImageBtn);
   row.appendChild(imagePreview);
   row.appendChild(media);
   row.appendChild(fileInput);

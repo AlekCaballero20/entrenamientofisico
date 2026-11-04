@@ -3220,3 +3220,5 @@ body.workout-open { overflow: hidden; }
 
 body.workout-open .music-player { bottom: 84px; }
 .exercise-media[hidden] { display: none; }
+.exercise-image-controls { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin-top: 8px; }
+.exercise-image-status { max-width: 340px; white-space: normal; }
