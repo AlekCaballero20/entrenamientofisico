@@ -16,7 +16,7 @@
 
 'use strict';
 
-const SW_VERSION = 'gymos-v1.9.0-music'; // súbelo cuando hagas cambios
+const SW_VERSION = 'gymos-v1.10.0-routine-ai'; // súbelo cuando hagas cambios
 const PREFIX = 'gymos';
 const CACHE_APP = `${PREFIX}-app-${SW_VERSION}`;
 const CACHE_RUNTIME = `${PREFIX}-runtime-${SW_VERSION}`;

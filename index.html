@@ -52,6 +52,7 @@
   <script defer src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
   <script defer src="https://www.gstatic.com/firebasejs/10.13.2/firebase-storage-compat.js"></script>
   <script defer src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
+  <script defer src="https://www.gstatic.com/firebasejs/10.13.2/firebase-functions-compat.js"></script>
   <script defer src="./firebase-sync.js"></script>
 
   <script defer src="./app.js"></script>
@@ -455,6 +456,7 @@
               </div>
             </div>
             <div class="toolbar__right">
+              <button id="btnGenerateRoutine" class="btn" type="button">Crear con IA</button>
               <button id="btnNewRoutine" class="btn btn--primary" type="button">
                 <span class="icon" aria-hidden="true">➕</span>
                 Nueva rutina
@@ -1103,6 +1105,38 @@
     ========================== -->
 
     <!-- MODAL: Routine Editor -->
+    <div id="modalRoutineAi" class="modal" role="dialog" aria-modal="true" aria-labelledby="modalRoutineAiTitle" hidden>
+      <div class="modal__backdrop" data-close></div>
+      <form id="routineAiForm" class="modal__panel">
+        <div class="modal__head">
+          <h3 id="modalRoutineAiTitle">Crear rutina con IA</h3>
+          <button class="icon-btn" type="button" data-close aria-label="Cerrar">✕</button>
+        </div>
+        <div class="modal__body form">
+          <p class="muted">Estiramiento y movilidad suave de nivel fácil. El tiempo incluye series y descansos programados. La cuenta de preparación y los avisos añaden tiempo.</p>
+          <label class="field">
+            <span class="field__label">Duración (minutos)</span>
+            <select id="routineAiMinutes" class="input">
+              <option value="10">10</option>
+              <option value="15">15</option>
+              <option value="20" selected>20</option>
+              <option value="25">25</option>
+            </select>
+          </label>
+          <label class="field">
+            <span class="field__label">¿Qué quieres trabajar?</span>
+            <textarea id="routineAiPrompt" class="input" rows="3" maxlength="300" required placeholder="Ej. Estiramiento fácil de cuerpo completo, con énfasis en piernas y sin usar la pared."></textarea>
+          </label>
+          <p id="routineAiStatus" class="muted" role="status"></p>
+          <p class="muted">Hasta 10 intentos diarios por cuenta. Tu descripción se envía a Gemini para preparar el borrador.</p>
+        </div>
+        <div class="modal__foot">
+          <button class="btn" type="button" data-close>Cancelar</button>
+          <button id="btnSubmitRoutineAi" class="btn btn--primary" type="submit">Generar borrador</button>
+        </div>
+      </form>
+    </div>
+
     <div id="modalRoutine" class="modal" role="dialog" aria-modal="true" aria-labelledby="modalRoutineTitle" hidden>
       <div class="modal__backdrop" data-close></div>
       <div class="modal__panel" role="document">

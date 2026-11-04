@@ -56,3 +56,40 @@ Luego abre:
 ```text
 http://localhost:8000
 ```
+
+## Generador de rutinas con IA
+
+En Rutinas, **Crear con IA** genera un borrador que se revisa en el editor antes
+de guardarlo. La primera versión admite movilidad suave de 10, 15, 20 o 25 minutos.
+El servidor selecciona ejercicios de un catálogo cerrado y calcula sus tiempos.
+Los minutos incluyen series y descansos programados. Las cuentas de preparación,
+avisos, pausas manuales y cambios de ejercicio pueden alargar la sesión real.
+
+El catálogo inicial requiere revisión técnica de una persona con formación en
+actividad física. Las peticiones sobre lesiones o dolor se remiten a otro enfoque
+mediante las instrucciones del modelo. Esa clasificación depende de la IA.
+
+La función usa Gemini 3.5 Flash-Lite con una clave guardada en Secret Manager.
+Firebase Auth verifica las dos cuentas autorizadas también en el servidor.
+Una transacción de Firestore limita a 10 intentos diarios por usuario, según
+America/Bogota. Los intentos fallidos también consumen cuota. El prompt se envía
+a Gemini para generar el borrador.
+
+Para activar el servidor, con facturación Blaze y acceso al proyecto:
+
+```powershell
+npm ci --prefix functions
+firebase functions:secrets:set GEMINI_API_KEY --project gymos-b2e86
+firebase deploy --only functions:generateRoutine --project gymos-b2e86
+```
+
+Crear la clave en Google AI Studio, habilitar el consumo de pago de Gemini en el
+proyecto asociado a esa clave e introducirla cuando la terminal la solicite.
+Después publicar los archivos web en el GitHub Pages existente.
+
+Validación local:
+
+```powershell
+npm test --prefix functions
+node --check app.js
+```

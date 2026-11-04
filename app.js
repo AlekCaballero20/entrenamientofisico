@@ -24,7 +24,7 @@
 /* ---------------------------
    CONSTANTS / KEYS
 --------------------------- */
-const APP_VERSION = "0.9.0-music";
+const APP_VERSION = "0.10.0-routine-ai";
 
 // Cache interna por usuario: no es un modo local de trabajo, solo evita perder
 // estado temporal mientras Firestore termina de responder.
@@ -2362,6 +2362,7 @@ function renderRoutines() {
 
   // Bind buttons each render is fine (idempotent by overwrite)
   $("#btnNewRoutine") && ($("#btnNewRoutine").onclick = () => openRoutineModal({ mode:"new" }));
+  $("#btnGenerateRoutine").onclick = openRoutineAiModal;
 
   if (search && !search.dataset.bound) {
     search.dataset.bound = "1";
@@ -2540,23 +2541,77 @@ function renderSessionEquipment() {
 /* ---------------------------
    ROUTINE MODAL
 --------------------------- */
+function openRoutineAiModal() {
+  const sync = window.FirebaseSync;
+  const user = sync?.currentUser;
+  if (!user || !sync.app?.functions) {
+    toast("Generador no disponible", "Inicia sesión y verifica tu conexión para usar la IA.", "warn");
+    return;
+  }
+
+  const modal = $("#modalRoutineAi");
+  const form = $("#routineAiForm");
+  const prompt = $("#routineAiPrompt");
+  const submit = $("#btnSubmitRoutineAi");
+  const status = $("#routineAiStatus");
+  form.reset();
+  submit.disabled = false;
+  status.textContent = "";
+
+  const generate = async event => {
+    event.preventDefault();
+    if (submit.disabled) return;
+    const description = prompt.value.trim();
+    if (!description) {
+      status.textContent = "Describe brevemente qué quieres trabajar.";
+      prompt.focus();
+      return;
+    }
+
+    submit.disabled = true;
+    status.textContent = "Preparando tu rutina…";
+    const isCurrent = () => !modal.hidden && form.onsubmit === generate &&
+      sync.currentUser?.uid === user.uid;
+    try {
+      const call = sync.app.functions("us-central1").httpsCallable("generateRoutine", { timeout: 35000 });
+      const { data } = await call({ minutes: Number($("#routineAiMinutes").value), prompt: description });
+      if (!isCurrent()) return;
+      closeModal("#modalRoutineAi");
+      openRoutineModal({ mode:"draft", routine: data });
+      $("#routineName").focus();
+    } catch (error) {
+      if (!isCurrent()) return;
+      const knownCodes = ["invalid-argument", "permission-denied", "resource-exhausted", "failed-precondition", "unavailable"];
+      const code = error.code?.replace(/^functions\//, "");
+      status.textContent = knownCodes.includes(code) && error.message !== code
+        ? error.message
+        : "No pudimos conectar con el generador. Intenta más tarde.";
+    } finally {
+      if (isCurrent()) submit.disabled = false;
+    }
+  };
+  form.onsubmit = generate;
+  openModal("#modalRoutineAi");
+  prompt.focus();
+}
+
 function openRoutineModal({ mode="new", routine=null } = {}) {
   const m = $("#modalRoutine");
   if (!m) return;
 
   const isEdit = mode === "edit" && routine;
-  $("#modalRoutineTitle").textContent = isEdit ? "Editar rutina" : "Nueva rutina";
+  $("#modalRoutineTitle").textContent = isEdit ? "Editar rutina" : mode === "draft" ? "Revisar borrador de IA" : "Nueva rutina";
 
-  $("#routineName").value = isEdit ? routine.name : "";
-  $("#routineTargetMin").value = isEdit ? (routine.targetMin || "") : "";
-  $("#routineTag").value = isEdit ? (routine.tag || "") : "";
-  $("#routineCardioSuggest").value = isEdit ? (routine.cardioSuggest || "") : "";
-  $("#routineEquipment") && ($("#routineEquipment").value = isEdit ? routineEquipment(routine).join(", ") : "");
+  $("#routineName").value = routine?.name || "";
+  $("#routineTargetMin").value = routine?.targetMin || "";
+  $("#routineTag").value = routine?.tag || "";
+  $("#routineCardioSuggest").value = routine?.cardioSuggest || "";
+  $("#routineEquipment") && ($("#routineEquipment").value = routineEquipment(routine).join(", "));
 
   const editor = $("#routineExercisesEditor");
   editor.innerHTML = "";
 
-  const exercises = isEdit ? (routine.exercises || []) : [];
+  const exercises = routine?.exercises || [];
   if (!exercises.length) {
     editor.appendChild(el("div", { class:"editor__empty muted", text:"Aquí aparecerán los ejercicios." }));
   } else {
