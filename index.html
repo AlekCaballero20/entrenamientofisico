@@ -40,8 +40,8 @@
   <!-- =========================
        PERFORMANCE / CSS
   ========================== -->
-  <link rel="preload" href="./styles.css" as="style" />
-  <link rel="stylesheet" href="./styles.css" />
+  <link rel="preload" href="./styles.css?v=0.12.0" as="style" />
+  <link rel="stylesheet" href="./styles.css?v=0.12.0" />
 
   <!-- =========================
        JS (orden: Firebase -> app)
@@ -55,8 +55,8 @@
   <script defer src="https://www.gstatic.com/firebasejs/10.13.2/firebase-functions-compat.js"></script>
   <script defer src="./firebase-sync.js"></script>
 
-  <script defer src="./functions/exercise-identity.js?v=0.11.1"></script>
-  <script defer src="./app.js?v=0.11.1"></script>
+  <script defer src="./functions/exercise-identity.js?v=0.12.0"></script>
+  <script defer src="./app.js?v=0.12.0"></script>
 
   <!-- =========================
        Service Worker (PWA)
@@ -163,7 +163,7 @@
       <nav class="nav" id="nav">
         <a class="nav__item is-active" href="#dashboard" data-route="dashboard" aria-current="page">
           <span class="nav__icon" aria-hidden="true">📊</span>
-          <span class="nav__label">Dashboard</span>
+          <span class="nav__label">Inicio</span>
         </a>
 
         <a class="nav__item" href="#routines" data-route="routines">
@@ -173,7 +173,7 @@
 
         <a class="nav__item" href="#new-session" data-route="new-session">
           <span class="nav__icon" aria-hidden="true">➕</span>
-          <span class="nav__label">Nueva sesión</span>
+          <span class="nav__label">Entrenar</span>
         </a>
 
         <a class="nav__item" href="#history" data-route="history">
@@ -233,7 +233,7 @@
       <header class="topbar" role="banner">
         <div class="topbar__left">
           <div class="page-title">
-            <h1 id="pageTitle">Dashboard</h1>
+            <h1 id="pageTitle">Inicio</h1>
             <p id="pageSubtitle" class="muted">Resumen rápido de tu progreso y constancia.</p>
           </div>
         </div>
@@ -241,9 +241,10 @@
         <div class="topbar__right">
           <button id="btnQuickSession" class="btn btn--primary" type="button">
             <span class="icon" aria-hidden="true">🏋️</span>
-            Empezar entrenamiento
+            Entrenar
           </button>
 
+          <div class="topbar__tools">
           <button id="btnTheme" class="icon-btn" type="button" aria-label="Cambiar tema">
             <span class="icon" aria-hidden="true">🌓</span>
           </button>
@@ -258,6 +259,7 @@
             <button id="btnSignOut" class="user-avatar__signout" type="button" aria-label="Cerrar sesión">
               <span class="icon" aria-hidden="true">↩</span>
             </button>
+          </div>
           </div>
         </div>
       </header>
@@ -305,7 +307,7 @@
                     <div class="kpi__hint muted">Series × reps × peso</div>
                   </div>
                   <div class="kpi">
-                    <div class="kpi__label">PRs recientes</div>
+                    <div class="kpi__label">Récords recientes</div>
                     <div class="kpi__value" id="kpiPRs">0</div>
                     <div class="kpi__hint muted">Mejores marcas nuevas</div>
                   </div>
@@ -368,7 +370,7 @@
                 <div class="empty" id="recentSessionsEmpty">
                   <div class="empty__icon" aria-hidden="true">🕒</div>
                   <div class="empty__title">Sin sesiones todavía</div>
-                  <div class="empty__text">Registra tu primera sesión y esto se llena solito.</div>
+                  <div class="empty__text">Aquí verás tus entrenamientos después de guardar la primera sesión.</div>
                 </div>
 
                 <div class="stack is-hidden" id="recentSessionsList"></div>
@@ -380,13 +382,13 @@
 
             <article class="card">
               <div class="card__head">
-                <h2>Ejercicio foco</h2>
+                <h2>Ejercicio destacado</h2>
                 <div class="muted">Tu progreso más visible</div>
               </div>
               <div class="card__body">
                 <div class="empty" id="focusExerciseEmpty">
                   <div class="empty__icon" aria-hidden="true">🎯</div>
-                  <div class="empty__title">Define tu ejercicio foco</div>
+                  <div class="empty__title">Destaca un ejercicio</div>
                   <div class="empty__text">Elige uno para ver su tendencia aquí.</div>
                 </div>
 
@@ -439,6 +441,8 @@
               <select id="programSelect" class="input program-bar__select" aria-label="Programa activo"></select>
               <span id="programProgressionPill" class="pill is-hidden"></span>
             </div>
+            <details class="action-menu program-menu">
+              <summary>Gestionar programa</summary>
             <div class="program-bar__actions">
               <button id="btnNewProgram" class="btn btn--ghost" type="button" title="Crear programa">➕ Nuevo</button>
               <button id="btnRenameProgram" class="btn btn--ghost" type="button" title="Renombrar programa">✏️ Renombrar</button>
@@ -447,6 +451,7 @@
               <button id="btnShareProgram" class="btn btn--ghost" type="button" title="Compartir programa con otro usuario">📤 Compartir</button>
               <button id="btnDeleteProgram" class="btn btn--ghost" type="button" title="Eliminar programa">🗑️ Eliminar</button>
             </div>
+            </details>
           </div>
 
           <div class="toolbar">
@@ -483,7 +488,7 @@
 
             <article class="card">
               <div class="card__head">
-                <h2>Detalle</h2>
+                <h2>Tu rutina</h2>
                 <div class="muted">Selecciona una rutina</div>
               </div>
               <div class="card__body">
@@ -499,31 +504,42 @@
                       <div class="routine-detail__name" id="routineDetailName">-</div>
                       <div class="muted" id="routineDetailMeta">-</div>
                     </div>
-                    <div class="row">
+                    <div class="routine-actions">
+                      <button class="btn btn--primary" id="btnStartRoutineFromRoutines" type="button">▶ Entrenar con esta rutina</button>
                       <button class="btn" id="btnEditRoutine" type="button">Editar</button>
                       <button class="btn" id="btnRoutineImages" type="button">Crear imágenes IA</button>
+                      <details class="action-menu">
+                        <summary>Más opciones</summary>
+                        <div class="action-menu__items">
                       <button class="btn btn--ghost" id="btnDuplicateRoutine" type="button">Duplicar</button>
                       <button class="btn btn--ghost" id="btnShareRoutine" type="button">📤 Compartir</button>
                       <button class="btn btn--danger" id="btnDeleteRoutine" type="button">Eliminar</button>
+                        </div>
+                      </details>
                     </div>
                   </div>
 
                   <div class="routine-detail__body">
                     <p id="routineImageStatus" class="muted" role="status"></p>
-                    <div class="subhead">Cardio sugerido</div>
-                    <div class="muted" id="routineCardio">-</div>
-
-                    <div class="subhead">Elementos necesarios</div>
-                    <div id="routineEquipmentList" class="equipment-check"></div>
+                    <div class="routine-info">
+                      <div>
+                        <div class="subhead">Cardio sugerido</div>
+                        <div class="muted" id="routineCardio">-</div>
+                      </div>
+                      <div>
+                        <div class="subhead">Elementos necesarios</div>
+                        <div id="routineEquipmentList" class="equipment-check"></div>
+                      </div>
+                    </div>
 
                     <div class="subhead">Ejercicios</div>
                     <div class="table-wrap">
-                      <table class="table" aria-label="Ejercicios de la rutina">
+                      <table class="table routine-table" aria-label="Ejercicios de la rutina">
                         <thead>
                           <tr>
                             <th>Ejercicio</th>
                             <th>Series</th>
-                            <th>Reps / tiempo por serie</th>
+                            <th>Repeticiones / tiempo por serie</th>
                             <th>Peso</th>
                             <th>Descansos</th>
                             <th>Notas</th>
@@ -535,12 +551,6 @@
                     </div>
                   </div>
 
-                  <div class="routine-detail__foot">
-                    <button class="btn btn--primary" id="btnStartRoutineFromRoutines" type="button">
-                      <span class="icon" aria-hidden="true">▶</span>
-                      Iniciar sesión con esta rutina
-                    </button>
-                  </div>
                 </div>
               </div>
             </article>
@@ -554,7 +564,7 @@
           <article class="start-hero">
             <div class="start-hero__copy">
               <h2 class="start-hero__title">¿Listo para entrenar?</h2>
-              <p class="start-hero__text">Elige la rutina y toca empezar. El peso, el cardio y las notas los anotas durante el entrenamiento o al final.</p>
+              <p class="start-hero__text">Elige tu rutina. Sigue las series y el temporizador, y guarda la sesión al terminar.</p>
             </div>
             <div class="start-hero__actions">
               <label class="field start-hero__field">
@@ -571,15 +581,15 @@
           </article>
 
           <div class="grid grid--2">
-            <article class="card">
-              <div class="card__head">
-                <h2>Configurar sesión</h2>
-                <div class="muted">Elige plantilla, fecha y duración</div>
-              </div>
+            <details class="card session-details">
+              <summary class="card__head">
+                <h2>Datos de la sesión</h2>
+                <div class="muted">Fecha, duración, esfuerzo y notas</div>
+              </summary>
 
               <div class="card__body form">
                 <label class="field">
-                  <span class="field__label">Plantilla (rutina)</span>
+                  <span class="field__label">Rutina</span>
                   <select id="sessionRoutineSelect" class="input">
                     <option value="">Selecciona una rutina…</option>
                   </select>
@@ -607,8 +617,9 @@
                   </label>
 
                   <label class="field">
-                    <span class="field__label">RPE (1–10)</span>
+                    <span class="field__label">Esfuerzo percibido (1–10)</span>
                     <input id="sessionRPE" type="number" min="1" max="10" step="1" class="input" placeholder="Opcional" />
+                    <span class="muted">1 muy suave · 10 esfuerzo máximo</span>
                   </label>
                 </div>
 
@@ -638,9 +649,9 @@
                   <span class="icon" aria-hidden="true">⬇️</span>
                   Cargar ejercicios y empezar
                 </button>
-                <button id="btnClearSession" class="btn btn--ghost" type="button">Limpiar</button>
+                <button id="btnClearSession" class="btn btn--ghost" type="button">Vaciar sesión</button>
               </div>
-            </article>
+            </details>
 
             <article class="card">
               <div class="card__head">
@@ -653,7 +664,7 @@
               <div class="card__body">
                 <div class="session-workflow">
                   <div><span>1</span><strong>Carga la rutina</strong></div>
-                  <div><span>2</span><strong>Marca series o inicia el tiempo</strong></div>
+                  <div><span>2</span><strong>Sigue los ejercicios y sus tiempos</strong></div>
                   <div><span>3</span><strong>Guarda al terminar</strong></div>
                 </div>
                 <div id="sessionEquipment" class="equipment-panel is-hidden">
@@ -669,7 +680,7 @@
                 <div class="empty" id="sessionExercisesEmpty">
                   <div class="empty__icon" aria-hidden="true">🧾</div>
                   <div class="empty__title">Aún no hay ejercicios</div>
-                  <div class="empty__text">Selecciona una rutina y toca “Cargar ejercicios”.</div>
+                  <div class="empty__text">Elige una rutina arriba y toca “Empezar a entrenar”.</div>
                 </div>
 
                 <div id="sessionExercises" class="session-exercises is-hidden" aria-label="Lista de ejercicios de sesión"></div>
@@ -714,7 +725,7 @@
 
               <button id="btnHistoryExportCSV" class="btn btn--ghost" type="button" title="Exportar CSV (sesiones)">
                 <span class="icon" aria-hidden="true">📄</span>
-                CSV
+                Exportar sesiones
               </button>
             </div>
           </div>
@@ -750,7 +761,7 @@
               <label class="field field--inline">
                 <span class="field__label">Métrica</span>
                 <select id="progressMetric" class="input">
-                  <option value="pr">Mejor peso (PR)</option>
+                  <option value="pr">Mejor peso registrado</option>
                   <option value="last">Último peso</option>
                   <option value="volume">Volumen</option>
                   <option value="freq">Frecuencia</option>
@@ -774,7 +785,7 @@
             <article class="card">
               <div class="card__head">
                 <h2>Resumen por ejercicio</h2>
-                <div class="muted">PR, último, tendencia</div>
+                <div class="muted">Mejor marca, último registro y tendencia</div>
               </div>
               <div class="card__body">
                 <div class="empty" id="progressEmpty">
@@ -788,7 +799,7 @@
                     <thead>
                       <tr>
                         <th>Ejercicio</th>
-                        <th>PR</th>
+                        <th>Mejor marca</th>
                         <th>Último</th>
                         <th>Tendencia</th>
                         <th>Frecuencia</th>
@@ -818,7 +829,7 @@
                       <div class="exercise-detail__name" id="exerciseName">-</div>
                       <div class="muted" id="exerciseMeta">-</div>
                     </div>
-                    <button class="btn btn--ghost" id="btnSetAsFocus" type="button">Fijar como foco</button>
+                    <button class="btn btn--ghost" id="btnSetAsFocus" type="button">Destacar en el inicio</button>
                   </div>
 
                   <div class="exercise-detail__chart" id="exerciseChart">
@@ -842,6 +853,8 @@
               </div>
 
               <div class="card__body form">
+                <fieldset class="preferences-group">
+                  <legend>Apariencia y registro</legend>
                 <label class="field">
                   <span class="field__label">Tema</span>
                   <select id="prefTheme" class="input">
@@ -860,13 +873,23 @@
                 </label>
 
                 <label class="field">
-                  <span class="field__label">Autosave (borrador)</span>
+                  <span class="field__label">Guardar el borrador automáticamente</span>
                   <select id="prefAutosave" class="input">
                     <option value="on">Activado</option>
                     <option value="off">Desactivado</option>
                   </select>
                 </label>
 
+                <label class="field">
+                  <span class="field__label">Formato de fecha</span>
+                  <select id="prefDateFmt" class="input">
+                    <option value="es-CO">Día, mes y año (Colombia)</option>
+                    <option value="iso">Año-mes-día</option>
+                  </select>
+                </label>
+                </fieldset>
+                <fieldset class="preferences-group">
+                  <legend>Música y temporizador</legend>
                 <label class="field">
                   <span class="field__label">Música al entrenar</span>
                   <select id="prefMusic" class="input">
@@ -904,13 +927,7 @@
                   </select>
                 </label>
 
-                <label class="field">
-                  <span class="field__label">Formato de fecha</span>
-                  <select id="prefDateFmt" class="input">
-                    <option value="es-CO">es-CO (Colombia)</option>
-                    <option value="iso">ISO (YYYY-MM-DD)</option>
-                  </select>
-                </label>
+                </fieldset>
               </div>
 
               <div class="card__foot">
@@ -920,8 +937,8 @@
 
             <article class="card">
               <div class="card__head">
-                <h2>Firebase</h2>
-                <div class="muted">Sincronización en la nube e imágenes</div>
+                <h2>Conexión y guardado</h2>
+                <div class="muted">Tus datos e imágenes en la nube</div>
               </div>
 
               <div class="card__body">
@@ -936,30 +953,30 @@
 
                   <div class="row row--between">
                     <div>
-                      <div class="label">Guardar en Firebase</div>
-                      <div class="muted">Sincroniza rutinas y sesiones actuales en Firestore</div>
+                      <div class="label">Guardar los cambios</div>
+                      <div class="muted">Envía tus rutinas y sesiones actuales a la nube</div>
                     </div>
-                    <button id="btnPushFirebase" class="btn" type="button">Guardar nube</button>
+                    <button id="btnPushFirebase" class="btn" type="button">Guardar ahora</button>
                   </div>
 
                   <div class="row row--between">
                     <div>
-                      <div class="label">Cargar datos de Firebase</div>
+                      <div class="label">Recargar los datos guardados</div>
                       <div class="muted">Recarga el estado guardado en la nube</div>
                     </div>
-                    <button id="btnPullFirebase" class="btn" type="button">Recargar nube</button>
+                    <button id="btnPullFirebase" class="btn" type="button">Recargar datos</button>
                   </div>
                 </div>
 
                 <div class="note muted">
-                  Las imágenes se suben a Firebase Storage y en las rutinas queda guardado el enlace. Los videos van como links, por ejemplo YouTube, Drive o Vimeo.
+                  Las imágenes quedan vinculadas a tus ejercicios. También puedes añadir enlaces de video de YouTube, Drive o Vimeo.
                 </div>
               </div>
             </article>
 
             <article class="card">
               <div class="card__head">
-                <h2>Datos</h2>
+                <h2>Respaldo y recuperación</h2>
                 <div class="muted">Importar, exportar y reiniciar</div>
               </div>
 
@@ -967,7 +984,7 @@
                 <div class="stack">
                   <div class="row row--between">
                     <div>
-                      <div class="label">Exportar JSON</div>
+                      <div class="label">Descargar un respaldo</div>
                       <div class="muted">Respaldo completo</div>
                     </div>
                     <button id="btnExport2" class="btn" type="button">Exportar</button>
@@ -975,7 +992,7 @@
 
                   <div class="row row--between">
                     <div>
-                      <div class="label">Importar JSON</div>
+                      <div class="label">Restaurar un respaldo</div>
                       <div class="muted">Restaura un respaldo</div>
                     </div>
                     <button id="btnImport2" class="btn" type="button">Importar</button>
@@ -993,7 +1010,7 @@
                 </div>
 
                 <div class="note muted">
-                  Si vas a reiniciar: exporta primero. La tragedia humana es cíclica, y esto la previene.
+                  Descarga un respaldo antes de reiniciar para poder recuperar tus rutinas y sesiones.
                 </div>
               </div>
             </article>
@@ -1017,7 +1034,7 @@
                       <select id="goalType" class="input">
                         <option value="sessions_weekly">Sesiones semanales</option>
                         <option value="cardio_weekly">Cardio semanal (min)</option>
-                        <option value="pr_weight">Superar peso PR</option>
+                        <option value="pr_weight">Superar mi mejor peso</option>
                         <option value="body_weight">Peso corporal objetivo</option>
                         <option value="custom">Otro objetivo libre</option>
                       </select>
@@ -1067,8 +1084,8 @@
       </main>
 
       <footer class="footer" role="contentinfo">
-        <div class="muted">GymOS | Firebase</div>
-        <div class="muted">v0.3 Firebase</div>
+        <div class="muted">GymOS</div>
+        <div class="muted">Rutinas · Entrenamiento · Progreso</div>
       </footer>
     </div>
 
@@ -1083,7 +1100,7 @@
       </a>
       <a class="nav__item" href="#new-session" data-route="new-session">
         <span class="nav__icon" aria-hidden="true">➕</span>
-        <span class="nav__label">Sesión</span>
+        <span class="nav__label">Entrenar</span>
       </a>
       <a class="nav__item" href="#history" data-route="history">
         <span class="nav__icon" aria-hidden="true">🕒</span>
@@ -1337,15 +1354,15 @@
               <div class="help__icon" aria-hidden="true">📈</div>
               <div>
                 <div class="help__title">3. Mira tu progreso</div>
-                <div class="help__text muted">El <strong>Dashboard</strong> resume tus últimos 7 días y tu constancia. En <strong>Progreso</strong> ves tendencias por ejercicio.</div>
+                <div class="help__text muted"><strong>Inicio</strong> resume tus últimos 7 días y tu constancia. En <strong>Progreso</strong> ves tendencias por ejercicio.</div>
               </div>
             </div>
 
             <div class="help__item">
               <div class="help__icon" aria-hidden="true">🎯</div>
               <div>
-                <div class="help__title">4. Define objetivos y foco</div>
-                <div class="help__text muted">En <strong>Objetivos</strong> fijas metas y eliges tu <em>ejercicio foco</em> para seguirlo de cerca.</div>
+                <div class="help__title">4. Sigue tus objetivos y tu ejercicio destacado</div>
+                <div class="help__text muted">En <strong>Objetivos</strong> fijas tus metas. En <strong>Progreso</strong> puedes destacar un ejercicio para seguir su evolución en el inicio.</div>
               </div>
             </div>
 
@@ -1648,7 +1665,7 @@
               <input class="input input--sm" type="number" min="0" step="1" />
             </label>
             <label class="field field--tight">
-              <span class="field__label">Reps</span>
+              <span class="field__label">Repeticiones</span>
               <input class="input input--sm" type="text" placeholder="Ej. 10 o 10/20" />
             </label>
             <label class="field field--tight">

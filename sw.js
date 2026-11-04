@@ -16,7 +16,7 @@
 
 'use strict';
 
-const SW_VERSION = 'gymos-v1.11.1-image-controls'; // súbelo cuando hagas cambios
+const SW_VERSION = 'gymos-v1.12.0-clear-layout'; // súbelo cuando hagas cambios
 const PREFIX = 'gymos';
 const CACHE_APP = `${PREFIX}-app-${SW_VERSION}`;
 const CACHE_RUNTIME = `${PREFIX}-runtime-${SW_VERSION}`;

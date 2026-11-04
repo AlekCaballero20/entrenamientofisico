@@ -24,7 +24,7 @@
 /* ---------------------------
    CONSTANTS / KEYS
 --------------------------- */
-const APP_VERSION = "0.11.1-image-controls";
+const APP_VERSION = "0.12.0-clear-layout";
 
 // Cache interna por usuario: no es un modo local de trabajo, solo evita perder
 // estado temporal mientras Firestore termina de responder.
@@ -1077,7 +1077,9 @@ function getRouteFromHash() {
 }
 
 function setRoute(route) {
+  const routeChanged = State.route !== route;
   State.route = route;
+  if (routeChanged) $(".content")?.scrollTo({ top: 0, left: 0, behavior: "instant" });
 
   // View visibility
   $$(".view").forEach(v => v.classList.remove("is-active"));
@@ -1093,13 +1095,13 @@ function setRoute(route) {
 
   // Title/subtitle
   const titleMap = {
-    "dashboard": ["Dashboard", "Resumen rápido de tu progreso y constancia."],
-    "routines": ["Rutinas", "Crea y ajusta tus plantillas."],
-    "new-session": ["Nueva sesión", "Registra lo que hiciste hoy."],
+    "dashboard": ["Inicio", "Tu actividad y el próximo entrenamiento."],
+    "routines": ["Rutinas", "Elige una rutina para entrenar o ajustarla."],
+    "new-session": ["Entrenar", "Elige tu rutina y empieza cuando estés listo."],
     "history": ["Historial", "Busca, revisa y compara sesiones."],
-    "progress": ["Progreso", "PRs, tendencias y frecuencia por ejercicio."],
-    "settings": ["Ajustes", "Tema, unidad, import/export y reinicio."],
-    "goals": ["Objetivos & Sugerencias", "Establece tus metas y adopta rutinas recomendadas."]
+    "progress": ["Progreso", "Tus marcas, evolución y frecuencia por ejercicio."],
+    "settings": ["Ajustes", "Preferencias, conexión y respaldo de tus datos."],
+    "goals": ["Objetivos", "Tus metas y las rutinas que pueden ayudarte."]
   };
   const [t, s] = titleMap[route] || ["GymOS", ""];
   $("#pageTitle").textContent = t;
@@ -1860,7 +1862,7 @@ function renderFocusExerciseBox() {
 
   $("#btnSetFocusExercise") && ($("#btnSetFocusExercise").onclick = () => {
     location.hash = "#progress";
-    toast("Progreso", "Selecciona un ejercicio y fíjalo como foco.", "ok");
+    toast("Progreso", "Selecciona el ejercicio que quieres destacar en el inicio.", "ok");
   });
 }
 
@@ -2568,12 +2570,12 @@ function renderRoutineDetail() {
         el("div", { text: ex.name }),
         exerciseImageControls(() => ex)
       ]),
-      el("td", { text: String(ex.sets||0) }),
-      el("td", { text: ex.duration > 0 ? fmtDurationLabel(ex.duration) : String(ex.reps||"") }),
-      el("td", { text: `${ex.weight||0} ${ex.unit || State.prefs.unit}` }),
-      el("td", { text: `${fmtDurationLabel(ex.rest || 0)} entre series · ${fmtDurationLabel(ex.restAfter || 0)} al terminar` }),
-      el("td", { text: ex.notes || "" }),
-      el("td", {}, [guide])
+      el("td", { "data-label":"Series", text: String(ex.sets||0) }),
+      el("td", { "data-label":ex.duration > 0 ? "Tiempo por serie" : "Repeticiones", text: ex.duration > 0 ? fmtDurationLabel(ex.duration) : String(ex.reps||"—") }),
+      el("td", { "data-label":"Peso", text: `${ex.weight||0} ${ex.unit || State.prefs.unit}` }),
+      el("td", { "data-label":"Descansos", text: `${fmtDurationLabel(ex.rest || 0)} entre series · ${fmtDurationLabel(ex.restAfter || 0)} al terminar` }),
+      el("td", { "data-label":"Indicaciones", text: ex.notes || "Sin indicaciones adicionales." }),
+      el("td", { "data-label":"Guía visual" }, [guide])
     ]));
   });
 
@@ -3302,6 +3304,14 @@ function prefillNewSessionFromRoutine(routineId) {
   loadExercisesFromSelectedRoutine();
 }
 
+function exercisePrescription(ex) {
+  const amount = ex.duration > 0
+    ? `${fmtDurationLabel(ex.duration)} por serie`
+    : (ex.reps ? `${ex.reps} repeticiones` : "");
+  const weight = Number(ex.weight) > 0 ? `${ex.weight} ${ex.unit || State.prefs.unit}` : "";
+  return [`${ex.sets || 1} series`, amount, weight].filter(Boolean).join(" · ");
+}
+
 function loadExercisesFromSelectedRoutine(options={}) {
   const routineId = $("#sessionRoutineSelect")?.value;
   if (!routineId) {
@@ -3328,7 +3338,7 @@ function loadExercisesFromSelectedRoutine(options={}) {
     if (!node) return;
 
     $(".exercise-card__name", node).textContent = ex.name;
-    $(".exercise-card__hint", node).textContent = `Sugerido: ${ex.sets}×${ex.reps} @ ${ex.weight} ${ex.unit || State.prefs.unit}`;
+    $(".exercise-card__hint", node).textContent = exercisePrescription(ex);
 
     const inputs = $$("input", node); // sets, reps, weight, notes
     inputs[0] && (inputs[0].value = ex.sets ?? 0);
@@ -3421,7 +3431,7 @@ function applyDraftToSessionUI(draft) {
       if (!node) return;
 
       $(".exercise-card__name", node).textContent = ex.name;
-      $(".exercise-card__hint", node).textContent = `Borrador: ${ex.sets}×${ex.reps} @ ${ex.weight} ${ex.unit || State.prefs.unit}`;
+      $(".exercise-card__hint", node).textContent = exercisePrescription(ex);
 
       const inputs = $$("input", node);
       inputs[0] && (inputs[0].value = ex.sets ?? 0);
@@ -3571,7 +3581,7 @@ async function saveSessionFromUI() {
   resetSessionUI();
 
   if (prDetected.count > 0) {
-    toast("Sesión guardada + PRs 🎯", `${prDetected.count} PR(s) detectado(s).`, "ok");
+    toast("Sesión guardada 🎯", `${prDetected.count} nueva(s) marca(s) personal(es).`, "ok");
   } else {
     toast("Sesión guardada", `${draft.routineName} • ${formatDate(s.date, State.prefs)}`, "ok");
   }
@@ -3808,7 +3818,7 @@ function renderProgress() {
     .slice(0, 12);
 
   if (!top.length) {
-    prList.appendChild(el("div", { class:"muted", text:"Sin PRs aún. Entrena, humano." }));
+    prList.appendChild(el("div", { class:"muted", text:"Tus mejores marcas aparecerán al registrar sesiones." }));
   } else {
     top.forEach(([name, w]) => {
       prList.appendChild(el("div", { class:"pr" }, [
@@ -3819,10 +3829,10 @@ function renderProgress() {
           type:"button",
           onclick: () => {
             Store.set(LS_KEYS.focusExercise, { name });
-            toast("Foco fijado", name, "ok");
+            toast("Ejercicio destacado", name, "ok");
             scheduleRender();
           }
-        }, [ "Fijar foco" ])
+        }, [ "Destacar ejercicio" ])
       ]));
     });
   }
