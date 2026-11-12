@@ -57,6 +57,34 @@ function request(uid = "test-user") {
   };
 }
 
+test("genera un programa de tres días con una sola solicitud", async () => {
+  const ids = Object.keys(catalog);
+  const { handler, providerCalls } = loadHandler([], "ok", {
+    programName: "Movilidad semanal",
+    days: ["Caderas", "Espalda", "Hombros"].map((focus, index) => ({
+      focus, exerciseIds: ids.slice(index * 8, index * 8 + 8)
+    }))
+  });
+  const req = request();
+  req.data.days = 3;
+  const result = await handler(req);
+  assert.equal(result.name, "Movilidad semanal");
+  assert.equal(result.routines.length, 3);
+  assert.equal(result.routines[2].name, "Día 3 · Hombros");
+  assert.ok(result.routines.every(routine => routine.targetMin === 20 && routine.exercises.length > 0));
+  assert.equal(providerCalls(), 1);
+});
+
+test("rechaza programas incompletos y cantidades de días fuera de rango", async () => {
+  const { handler, providerCalls } = loadHandler([], "ok", { days: [] });
+  const req = request();
+  req.data.days = 8;
+  await assert.rejects(handler(req), { code: "invalid-argument" });
+  assert.equal(providerCalls(), 0);
+  req.data.days = 3;
+  await assert.rejects(handler(req), { code: "unavailable" });
+});
+
 test("bloquea cuentas ajenas y correos sin verificar antes de llamar al modelo", async () => {
   const { handler, providerCalls } = loadHandler();
   const unsigned = request();

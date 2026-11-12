@@ -42,7 +42,12 @@ exports.generateRoutine = onCall({
   if (!auth || !auth.token.email_verified || !allowedEmails.has(auth.token.email?.toLowerCase())) {
     throw new HttpsError("permission-denied", "Inicia sesión con una cuenta autorizada de GymOS.");
   }
-  const { minutes, prompt, options = {} } = request.data || {};
+  const { minutes, prompt, options = {}, days } = request.data || {};
+  const isProgram = days !== undefined;
+  if (isProgram && days !== null && (!Number.isInteger(days) || days < 1 || days > 7)) {
+    throw new HttpsError("invalid-argument", "Elige entre 1 y 7 días por semana.");
+  }
+  const exerciseIdsSchema = { type: "ARRAY", items: { type: "STRING", enum: Object.keys(records) } };
   if (!validOptions(options)) {
     throw new HttpsError("invalid-argument", "Revisa los filtros: elige una posición y superficie disponibles, un nivel de 1 a 3 y una semana entre 1 y 12.");
   }
@@ -71,6 +76,13 @@ exports.generateRoutine = onCall({
           "Los filtros de interfaz son obligatorios: " + JSON.stringify(options),
           "Usa excludedRiskTags para apoyos o movimientos que el usuario excluye. requiredEquipment solo si exige usar ese equipo en cada ejercicio; 'sin equipo' nunca requiere equipo.",
           "Devuelve un objeto con status y exerciseIds. Para una rutina general posible, usa status ok y los IDs.",
+          ...(isProgram ? [
+            days === null
+              ? "Si el usuario indica cuántos días quiere por semana, respeta esa cantidad. Si no lo indica, prepara 3 días. Si pide más de 7 o menos de 1, usa status unsupported e indica el rango disponible."
+              : `El selector de la app fija la frecuencia: prepara exactamente ${days} días aunque el texto indique otra cantidad.`,
+            "Para status ok, devuelve programName y las sesiones en days, en orden semanal, cada una con focus (nombre breve del objetivo del día) y exerciseIds. Deja vacío el exerciseIds de nivel superior.",
+            "Distribuye los objetivos entre los días con enfoques complementarios y variación entre sesiones. Cada día es una rutina completa de la duración indicada. Aplica las restricciones obligatorias a todos los días."
+          ] : []),
           "La menstruación habitual, ser principiante, volver después de una pausa, buscar flexibilidad o mencionar ausencia de dolor no son por sí solos motivos para rechazar una rutina general suave.",
           "Usa status health_review con exerciseIds vacío si hay dolor fuerte, dolor inexplicado o que empeora, una lesión o condición que necesita valoración individual, o si se pide rehabilitación o corregir un problema médico.",
           "Una joroba de búfalo o un bulto dorsocervical no debe interpretarse como simple mala postura ni prometer corregirse con estiramientos.",
@@ -86,14 +98,22 @@ exports.generateRoutine = onCall({
         ].join("\n") }] },
         contents: [{ role: "user", parts: [{ text: prompt.trim() }] }],
         generationConfig: {
-          maxOutputTokens: 1024,
+          maxOutputTokens: isProgram ? 4096 : 1024,
           thinkingConfig: { thinkingLevel: "minimal" },
           responseMimeType: "application/json",
           responseSchema: {
             type: "OBJECT",
             properties: {
               status: { type: "STRING", enum: ["ok", "health_review", "unsupported"] },
-              exerciseIds: { type: "ARRAY", items: { type: "STRING", enum: Object.keys(records) } },
+              exerciseIds: exerciseIdsSchema,
+              ...(isProgram ? {
+                programName: { type: "STRING" },
+                days: { type: "ARRAY", items: {
+                  type: "OBJECT",
+                  properties: { focus: { type: "STRING" }, exerciseIds: { type: "ARRAY", items: { type: "STRING" } } },
+                  required: ["focus", "exerciseIds"]
+                } }
+              } : {}),
               unavailableRequirement: { type: "STRING" },
               constraints: {
                 type: "OBJECT",
@@ -136,10 +156,12 @@ exports.generateRoutine = onCall({
     }
     if (!["ok", "unsupported"].includes(selection.status)) throw new Error("Clasificación inválida");
     const intent = resolveIntent(prompt, options, selection.constraints || {});
-    const proposedIds = Array.isArray(selection.exerciseIds) ? selection.exerciseIds : [];
-    let selected;
-    try {
-      selected = selectExercises(compatibleExercises(intent), intent, proposedIds, minutes);
+    const candidatesForIntent = compatibleExercises(intent);
+    function buildDay(ids) {
+      const proposedIds = Array.isArray(ids) ? ids : [];
+      let selected;
+      try {
+        selected = selectExercises(candidatesForIntent, intent, proposedIds, minutes);
     } catch (error) {
       throw new HttpsError("failed-precondition", error.message, { reason: "unsupported" });
     }
@@ -153,6 +175,21 @@ exports.generateRoutine = onCall({
       : [];
     if (missingRegions.length) routine.generationNotes.push("Cobertura parcial con estas restricciones: falta " + missingRegions.join(", ") + ".");
     return routine;
+    }
+    if (!isProgram) return buildDay(selection.exerciseIds);
+    if (!Array.isArray(selection.days) || selection.days.length < 1 || selection.days.length > 7 ||
+        (days !== null && selection.days.length !== days) ||
+        selection.days.some(day => !day || typeof day.focus !== "string" || !day.focus.trim() ||
+          !Array.isArray(day.exerciseIds) || !day.exerciseIds.length)) {
+      throw new Error("Programa incompleto");
+    }
+    return {
+      name: String(selection.programName || "").trim().slice(0, 100) || "Programa semanal",
+      routines: selection.days.map((day, index) => ({
+        ...buildDay(day.exerciseIds),
+        name: `Día ${index + 1} · ${day.focus.trim().slice(0, 80)}`
+      }))
+    };
   } catch (error) {
     if (error instanceof HttpsError) throw error;
     logger.warn("No se pudo generar un borrador de rutina", { type: error.name });

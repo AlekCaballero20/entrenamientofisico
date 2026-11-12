@@ -24,7 +24,7 @@
 /* ---------------------------
    CONSTANTS / KEYS
 --------------------------- */
-const APP_VERSION = "0.13.0-flexibility-catalog";
+const APP_VERSION = "0.13.1";
 
 // Cache interna por usuario: no es un modo local de trabajo, solo evita perder
 // estado temporal mientras Firestore termina de responder.
@@ -1294,7 +1294,7 @@ function setActiveProgram(id) {
   return true;
 }
 
-function createProgram(name) {
+function createProgram(name, routines = []) {
   const now = Date.now();
   const p = {
     id: uid("program"),
@@ -1305,6 +1305,10 @@ function createProgram(name) {
   State.programs.push(p);
   State.activeProgramId = p.id;
   State.selectedRoutineId = null;
+  if (routines.length) {
+    State.routines.unshift(...routines.map(routine => buildRoutineRecord(routine)));
+    Store.set(LS_KEYS.routines, State.routines);
+  }
   savePrograms();
   return p;
 }
@@ -1368,9 +1372,9 @@ function deleteProgram(id) {
 /* ---------------------------
    CRUD: ROUTINES
 --------------------------- */
-function createRoutine(data) {
+function buildRoutineRecord(data) {
   const now = Date.now();
-  const r = {
+  return {
     ...data,
     id: uid("routine"),
     programId: State.activeProgramId,
@@ -1396,6 +1400,10 @@ function createRoutine(data) {
     createdAt: now,
     updatedAt: now
   };
+}
+
+function createRoutine(data) {
+  const r = buildRoutineRecord(data);
   State.routines.unshift(r);
   saveRoutines();
   return r;
@@ -2264,6 +2272,7 @@ function renderProgramBar() {
     toast("Programa creado", p.name, "ok");
     scheduleRender();
   });
+  bind("#btnGenerateProgram", () => openRoutineAiModal(true));
 
   bind("#btnRenameProgram", () => {
     const p = activeProgram();
@@ -2371,7 +2380,7 @@ function renderRoutines() {
 
   // Bind buttons each render is fine (idempotent by overwrite)
   $("#btnNewRoutine") && ($("#btnNewRoutine").onclick = () => openRoutineModal({ mode:"new" }));
-  $("#btnGenerateRoutine").onclick = openRoutineAiModal;
+  $("#btnGenerateRoutine").onclick = () => openRoutineAiModal();
 
   if (search && !search.dataset.bound) {
     search.dataset.bound = "1";
@@ -2784,7 +2793,7 @@ function renderSessionEquipment() {
 /* ---------------------------
    ROUTINE MODAL
 --------------------------- */
-function openRoutineAiModal() {
+function openRoutineAiModal(isProgram = false) {
   const sync = window.FirebaseSync;
   const user = sync?.currentUser;
   if (!user || !sync.app?.functions) {
@@ -2797,6 +2806,17 @@ function openRoutineAiModal() {
   const prompt = $("#routineAiPrompt");
   const submit = $("#btnSubmitRoutineAi");
   const status = $("#routineAiStatus");
+  const daysField = $("#routineAiDaysField");
+  const daysInput = $("#routineAiDays");
+  const preview = $("#programAiPreview");
+  const save = $("#btnSaveAiProgram");
+  $("#modalRoutineAiTitle").textContent = isProgram ? "Crear programa con IA" : "Crear rutina con IA";
+  daysField.classList.toggle("is-hidden", !isProgram);
+  daysInput.disabled = !isProgram;
+  preview.classList.add("is-hidden");
+  preview.replaceChildren();
+  save.classList.add("is-hidden");
+  save.onclick = null;
   $("#routineAiCategory").replaceChildren(
     el("option", { value:"", text:"Según la descripción" }),
     ...Object.entries(GymCatalog.categories).map(([value, text]) => el("option", { value, text }))
@@ -2816,13 +2836,18 @@ function openRoutineAiModal() {
     }
 
     submit.disabled = true;
-    status.textContent = "Preparando tu rutina…";
+    preview.classList.add("is-hidden");
+    save.classList.add("is-hidden");
+    save.onclick = null;
+    const days = daysInput.value ? Number(daysInput.value) : null;
+    status.textContent = isProgram ? "Preparando tu programa semanal…" : "Preparando tu rutina…";
     const isCurrent = () => !modal.hidden && form.onsubmit === generate &&
       sync.currentUser?.uid === user.uid;
     try {
       const call = sync.app.functions("us-central1").httpsCallable("generateRoutine", { timeout: 35000 });
       const { data } = await call({
         minutes: Number($("#routineAiMinutes").value), prompt: description,
+        ...(isProgram ? { days } : {}),
         options: {
           category: $("#routineAiCategory").value, position: $("#routineAiPosition").value,
           surface: $("#routineAiSurface").value, maxLevel: Number($("#routineAiLevel").value),
@@ -2831,13 +2856,49 @@ function openRoutineAiModal() {
         }
       });
       if (!isCurrent()) return;
+      if (isProgram) {
+        if (!Array.isArray(data?.routines) || !data.routines.length ||
+            (days !== null && data.routines.length !== days) ||
+            data.routines.some(routine => !routine?.exercises?.length)) {
+          status.textContent = "El generador no devolvió el programa completo. Intenta de nuevo.";
+          return;
+        }
+        const name = el("input", { class:"input", type:"text", maxlength:"100", value:data.name });
+        preview.replaceChildren(
+          el("label", { class:"field" }, [
+            el("span", { class:"field__label", text:"Nombre del programa" }), name
+          ]),
+          ...data.routines.map(routine => el("details", { class:"ai-options" }, [
+            el("summary", { text:`${routine.name} · ${routine.targetMin} min` }),
+            el("ul", {}, routine.exercises.map(exercise => el("li", { text:exercise.name }))),
+            el("p", { class:"muted", text:(routine.generationNotes || []).join(" ") })
+          ]))
+        );
+        preview.classList.remove("is-hidden");
+        save.classList.remove("is-hidden");
+        status.textContent = `Borrador listo · ${data.routines.length} día(s) por semana.`;
+        save.onclick = () => {
+          if (!isCurrent() || save.classList.contains("is-hidden")) return;
+          if (!name.value.trim()) {
+            status.textContent = "Ponle un nombre al programa.";
+            name.focus();
+            return;
+          }
+          const program = createProgram(name.value, data.routines);
+          closeModal("#modalRoutineAi");
+          toast("Programa creado", program.name, "ok");
+          scheduleRender();
+        };
+        name.focus();
+        return;
+      }
       closeModal("#modalRoutineAi");
       openRoutineModal({ mode:"draft", routine: data });
       $("#routineName").focus();
     } catch (error) {
       if (!isCurrent()) return;
       if (error.details?.reason === "health-review") {
-        status.textContent = "Antes de crear esta rutina\n" + error.message;
+        status.textContent = error.message;
         return;
       }
       const knownCodes = ["invalid-argument", "permission-denied", "resource-exhausted", "failed-precondition", "unavailable"];

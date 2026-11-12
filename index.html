@@ -57,7 +57,7 @@
 
   <script defer src="./functions/exercise-identity.js?v=0.13.0"></script>
   <script defer src="./functions/exercise-catalog.js?v=0.13.0"></script>
-  <script defer src="./app.js?v=0.13.0"></script>
+  <script defer src="./app.js?v=0.13.1"></script>
 
   <!-- =========================
        Service Worker (PWA)
@@ -446,6 +446,7 @@
               <summary>Gestionar programa</summary>
             <div class="program-bar__actions">
               <button id="btnNewProgram" class="btn btn--ghost" type="button" title="Crear programa">➕ Nuevo</button>
+              <button id="btnGenerateProgram" class="btn btn--ghost" type="button">Crear programa con IA</button>
               <button id="btnRenameProgram" class="btn btn--ghost" type="button" title="Renombrar programa">✏️ Renombrar</button>
               <button id="btnDuplicateProgram" class="btn btn--ghost" type="button" title="Duplicar programa con sus días">⧉ Duplicar</button>
               <button id="btnProgression" class="btn btn--ghost" type="button" title="Configurar aumento automático de carga">📈 Progresión</button>
@@ -1140,6 +1141,10 @@
         </div>
         <div class="modal__body form">
           <p class="muted">Flexibilidad, movilidad, danza y recuperación con ejercicios del catálogo. Los tiempos incluyen series y descansos; las cuentas de preparación y los avisos añaden tiempo.</p>
+          <label id="routineAiDaysField" class="field is-hidden">
+            <span class="field__label">Días por semana</span>
+            <input id="routineAiDays" class="input" type="number" min="1" max="7" step="1" placeholder="Según la descripción" disabled />
+          </label>
           <label class="field">
             <span class="field__label">Duración (minutos)</span>
             <select id="routineAiMinutes" class="input">
@@ -1184,11 +1189,13 @@
             <span id="routineAiContextHelp" class="muted">Hasta 1500 caracteres. Crea una rutina por persona para indicar sus necesidades con claridad.</span>
           </label>
           <p id="routineAiStatus" class="muted" role="status"></p>
+          <section id="programAiPreview" class="form is-hidden" aria-label="Borrador del programa"></section>
           <p class="muted">Hasta 10 intentos diarios por cuenta. Tu descripción se envía a Gemini para preparar el borrador.</p>
         </div>
         <div class="modal__foot">
           <button class="btn" type="button" data-close>Cancelar</button>
           <button id="btnSubmitRoutineAi" class="btn btn--primary" type="submit">Generar borrador</button>
+          <button id="btnSaveAiProgram" class="btn btn--primary is-hidden" type="button">Guardar programa</button>
         </div>
       </form>
     </div>

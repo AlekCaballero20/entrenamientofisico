@@ -67,7 +67,7 @@ test("editor y creación conservan metadatos nuevos y campos anteriores durante 
     "#routineName": { value: draft.name }, "#routineTargetMin": { value: "15" },
     "#routineTag": { value: draft.tag }, "#routineCardioSuggest": { value: "" }, "#routineEquipment": { value: "" }
   };
-  const client = clientFunctions(["cleanMediaUrl", "timeFieldSeconds", "collectRoutineModalData", "createRoutine", "updateRoutine"], {
+  const client = clientFunctions(["cleanMediaUrl", "timeFieldSeconds", "collectRoutineModalData", "buildRoutineRecord", "createRoutine", "updateRoutine"], {
     State, $: selector => nodes[selector], $$: () => [row],
     parseEquipmentList: value => Array.isArray(value) ? value : [],
     uid: () => "new-routine-id", saveRoutines() {}
