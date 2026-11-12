@@ -24,7 +24,7 @@
 /* ---------------------------
    CONSTANTS / KEYS
 --------------------------- */
-const APP_VERSION = "0.13.2";
+const APP_VERSION = "0.13.3";
 
 // Cache interna por usuario: no es un modo local de trabajo, solo evita perder
 // estado temporal mientras Firestore termina de responder.
@@ -317,14 +317,15 @@ function updateFirebaseStatus(title, text, type="") {
   const label = $("#firebaseStatusText");
   const storage = $("#pillStorage");
   const hint = $("#storageHint");
+  const status = type === "warn" ? "Revisar" : title;
 
   if (pill) {
-    pill.textContent = title || "Firebase";
+    pill.textContent = status;
     pill.classList.toggle("pill--ok", type === "ok");
     pill.classList.toggle("pill--warn", type === "warn");
   }
   if (label) label.textContent = text || "";
-  if (storage && title) storage.textContent = title;
+  if (storage) storage.textContent = status;
   if (hint && text) hint.textContent = text;
 }
 
@@ -361,22 +362,22 @@ function applyRemoteState(payload) {
 async function pushFirebaseNow(showToast=true) {
   const sync = window.FirebaseSync;
   if (!sync || !sync.ready) {
-    updateFirebaseStatus("Firebase", "Firebase no está cargado. Revisa internet o los scripts CDN.", "warn");
-    if (showToast) toast("Firebase no disponible", "No se guardaron cambios en la nube.", "warn");
+    updateFirebaseStatus("En línea", "Revisa tu conexión a internet para guardar tus cambios.", "warn");
+    if (showToast) toast("Sin conexión", "No se guardaron cambios en la nube.", "warn");
     return false;
   }
 
   try {
-    updateFirebaseStatus("Guardando", "Guardando rutinas y sesiones en Firestore…");
+    updateFirebaseStatus("Guardando", "Guardando tus rutinas y sesiones…");
     await sync.ready;
     await sync.saveState(appStatePayload());
-    updateFirebaseStatus("Firebase", "Sincronizado con Firestore.", "ok");
-    if (showToast) toast("Guardado en Firebase", "Tus datos quedaron sincronizados en la nube.", "ok");
+    updateFirebaseStatus("En línea", "Tus cambios están guardados en tu cuenta.", "ok");
+    if (showToast) toast("Cambios guardados", "Ya puedes verlos en los dispositivos donde uses esta cuenta.", "ok");
     return true;
   } catch (err) {
     console.error("[Firebase] push error", err);
-    updateFirebaseStatus("Firebase", "No se pudo guardar en Firebase. Revisa reglas de Firestore/Storage.", "warn");
-    if (showToast) toast("No se guardó en Firebase", "Revisa reglas o conexión antes de continuar.", "warn");
+    updateFirebaseStatus("En línea", "No pudimos guardar tus cambios. Revisa tu conexión e intenta de nuevo.", "warn");
+    if (showToast) toast("Cambios sin guardar", "Revisa tu conexión a internet e intenta de nuevo.", "warn");
     return false;
   }
 }
@@ -384,29 +385,29 @@ async function pushFirebaseNow(showToast=true) {
 async function pullFirebaseNow(showToast=true) {
   const sync = window.FirebaseSync;
   if (!sync || !sync.ready) {
-    updateFirebaseStatus("Firebase", "Firebase no está cargado.", "warn");
-    if (showToast) toast("Firebase no disponible", "No pude leer la nube.", "warn");
+    updateFirebaseStatus("En línea", "Revisa tu conexión a internet.", "warn");
+    if (showToast) toast("Sin conexión", "No pudimos abrir tus datos guardados.", "warn");
     return false;
   }
 
   try {
-    updateFirebaseStatus("Leyendo", "Cargando estado desde Firestore…");
+    updateFirebaseStatus("Leyendo", "Abriendo tus rutinas y sesiones guardadas…");
     await sync.ready;
     const cloud = await sync.loadState();
     if (!payloadHasWorkoutData(cloud)) {
-      updateFirebaseStatus("Firebase", "No hay datos en la nube todavía.", "warn");
-      if (showToast) toast("Nube vacía", "Crea datos o guarda el estado actual en Firebase.", "warn");
+      updateFirebaseStatus("En línea", "No hay datos en la nube todavía.", "warn");
+      if (showToast) toast("Nube vacía", "Aún no tienes rutinas o sesiones guardadas en tu cuenta.", "warn");
       return false;
     }
     applyRemoteState(cloud);
-    updateFirebaseStatus("Firebase", "Datos cargados desde Firestore.", "ok");
-    if (showToast) toast("Datos cargados", "Se bajó la versión guardada en Firebase.", "ok");
+    updateFirebaseStatus("En línea", "Abrimos los datos guardados en tu cuenta.", "ok");
+    if (showToast) toast("Datos cargados", "Ya puedes ver tus rutinas y sesiones guardadas.", "ok");
     scheduleRender();
     return true;
   } catch (err) {
     console.error("[Firebase] pull error", err);
-    updateFirebaseStatus("Firebase", "No se pudo leer Firebase. No se cargaron datos de la nube.", "warn");
-    if (showToast) toast("No se leyó Firebase", "Revisa conexión o reglas.", "warn");
+    updateFirebaseStatus("En línea", "No pudimos abrir los datos de tu cuenta.", "warn");
+    if (showToast) toast("No se pudieron abrir tus datos", "Revisa tu conexión a internet e intenta de nuevo.", "warn");
     return false;
   }
 }
@@ -414,12 +415,12 @@ async function pullFirebaseNow(showToast=true) {
 function queueFirebaseSave() {
   if (firebaseIsApplyingRemote) return;
   if (!firebaseBootstrapped) {
-    updateFirebaseStatus("Firebase", "Esperando conexión con Firebase para guardar.", "warn");
+    updateFirebaseStatus("En línea", "Esperando conexión a internet para guardar tus cambios.", "warn");
     return;
   }
   const sync = window.FirebaseSync;
   if (!sync || !sync.ready) {
-    updateFirebaseStatus("Firebase", "Firebase no disponible. No se guardaron cambios en la nube.", "warn");
+    updateFirebaseStatus("En línea", "Sin conexión. No se guardaron cambios en la nube.", "warn");
     return;
   }
 
@@ -434,9 +435,9 @@ function bindFirebaseStatusListener() {
   window.__gymosFirebaseStatusBound = true;
   window.addEventListener("gymos:firebase-status", (event) => {
     const status = event.detail?.status || "";
-    if (status === "ready") updateFirebaseStatus("Firebase", "Conectado. Revisando nube…", "ok");
-    if (status === "synced") updateFirebaseStatus("Firebase", "Sincronizado con Firestore.", "ok");
-    if (status === "error") updateFirebaseStatus("Firebase", "Firebase no cargó. No hay modo local disponible.", "warn");
+    if (status === "ready") updateFirebaseStatus("En línea", "Conectado. Revisando nube…", "ok");
+    if (status === "synced") updateFirebaseStatus("En línea", "Tus cambios están guardados en tu cuenta.", "ok");
+    if (status === "error") updateFirebaseStatus("En línea", "Conéctate a internet para usar GymOS.", "warn");
   });
 }
 
@@ -444,27 +445,27 @@ async function initFirebaseSync() {
   bindFirebaseStatusListener();
   const sync = window.FirebaseSync;
   if (!sync || !sync.ready) {
-    updateFirebaseStatus("Firebase", "Firebase no está disponible. No se guardarán cambios hasta conectar.", "warn");
+    updateFirebaseStatus("En línea", "Conéctate a internet para guardar tus cambios.", "warn");
     // Sin nube: al menos mostrar las rutinas predeterminadas localmente.
     if (maybeSeedDefaultRoutines()) scheduleRender();
     return;
   }
 
   try {
-    updateFirebaseStatus("Firebase", "Conectando con Firestore…");
+    updateFirebaseStatus("En línea", "Abriendo tu cuenta…");
     await sync.ready;
     const cloud = await sync.loadState();
     const localPayload = appStatePayload();
 
     if (payloadHasWorkoutData(cloud)) {
       applyRemoteState(cloud);
-      updateFirebaseStatus("Firebase", "Datos cargados desde la nube.", "ok");
+      updateFirebaseStatus("En línea", "Datos cargados desde la nube.", "ok");
       scheduleRender();
     } else if (payloadHasWorkoutData(localPayload)) {
       await sync.saveState(localPayload);
-      updateFirebaseStatus("Firebase", "Estado inicial guardado en Firestore.", "ok");
+      updateFirebaseStatus("En línea", "Guardamos los datos iniciales en tu cuenta.", "ok");
     } else {
-      updateFirebaseStatus("Firebase", "Conectado. Crea o importa rutinas para sincronizar.", "ok");
+      updateFirebaseStatus("En línea", "Ya puedes crear rutinas o recuperar una copia anterior.", "ok");
     }
 
     firebaseBootstrapped = true;
@@ -483,14 +484,14 @@ async function initFirebaseSync() {
   } catch (err) {
     console.error("[Firebase] init error", err);
     firebaseBootstrapped = false;
-    updateFirebaseStatus("Firebase", "No se pudo conectar a Firebase. Revisa reglas, Auth o conexión.", "warn");
+    updateFirebaseStatus("En línea", "No pudimos abrir tu cuenta. Revisa tu conexión e intenta de nuevo.", "warn");
   }
 }
 
 async function uploadExerciseImageForRow(row, file, imageInput, nameInput) {
   const sync = window.FirebaseSync;
   if (!sync || !sync.ready) {
-    toast("Firebase no disponible", "Pega una URL de imagen por ahora.", "warn");
+    toast("Sin conexión", "Puedes pegar el enlace de una imagen.", "warn");
     return;
   }
 
@@ -503,7 +504,7 @@ async function uploadExerciseImageForRow(row, file, imageInput, nameInput) {
   } catch (err) {
     console.error("[Firebase] image upload error", err);
     imageInput.value = "";
-    toast("No subió la imagen", "Revisa Storage Rules o usa una URL externa.", "warn");
+    toast("No subió la imagen", "Intenta subirla de nuevo o pega el enlace de la imagen.", "warn");
   }
 }
 
@@ -597,7 +598,7 @@ async function sendShareFromModal() {
     shareContext = null;
   } catch (err) {
     console.error("[Share] send error", err);
-    toast("No se pudo compartir", "Revisa tu conexión o las reglas de Firestore.", "warn");
+    toast("No se pudo compartir", "Revisa tu conexión a internet e intenta de nuevo.", "warn");
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = "📤 Enviar"; }
   }
@@ -631,7 +632,7 @@ async function refreshIncomingShares(showFeedback = false) {
     }
   } catch (err) {
     console.error("[Share] fetch error", err);
-    if (showFeedback) toast("No se pudo consultar", "Revisa conexión o reglas de Firestore.", "warn");
+    if (showFeedback) toast("No se pudo consultar", "Revisa tu conexión a internet e intenta de nuevo.", "warn");
   }
 }
 
@@ -1613,7 +1614,7 @@ function trendLabel(values) {
 function renderAll() {
   $("#todayLabel") && ($("#todayLabel").textContent = formatDate(todayISO(), State.prefs));
 
-  $("#pillStorage") && ($("#pillStorage").textContent = "Firebase");
+  $("#pillStorage") && ($("#pillStorage").textContent = "En línea");
   $("#pillOffline") && ($("#pillOffline").textContent = "Nube requerida");
 
   if (State.route === "dashboard") renderDashboard();
@@ -1783,7 +1784,7 @@ function renderNextRoutineSuggestion() {
   
 
   $("#nextRoutineName") && ($("#nextRoutineName").textContent = pick.name);
-  $("#nextRoutineMeta") && ($("#nextRoutineMeta").textContent = `${pick.tag || "Sin tag"} • ${pick.exercises.length} ejercicios • ${pick.targetMin || 0} min`);
+  $("#nextRoutineMeta") && ($("#nextRoutineMeta").textContent = `${pick.tag || "Sin categoría"} • ${pick.exercises.length} ejercicios • ${pick.targetMin || 0} min`);
 
   list.innerHTML = "";
   pick.exercises.slice(0,6).forEach(ex => {
@@ -2361,7 +2362,7 @@ function renderRoutines() {
       $(".tile__title", node).textContent = r.name;
       $(".tile__meta", node).textContent = `${r.targetMin || 0} min • ${r.exercises.length} ejercicios`;
       const pill = $(".pill", node);
-      pill.textContent = r.tag || "Sin tag";
+      pill.textContent = r.tag || "Sin categoría";
 
       node.setAttribute("aria-pressed", String(State.selectedRoutineId === r.id));
       node.addEventListener("click", () => {
@@ -2703,7 +2704,7 @@ function renderRoutineDetail() {
     imageStatus.textContent = "";
     imageStatus.dataset.routineId = r.id;
   }
-  $("#routineDetailMeta") && ($("#routineDetailMeta").textContent = `${r.tag || "Sin tag"} • ${r.exercises.length} ejercicios • ${r.targetMin || 0} min` + (r.progressionWeek ? " • Semana " + r.progressionWeek : ""));
+  $("#routineDetailMeta") && ($("#routineDetailMeta").textContent = `${r.tag || "Sin categoría"} • ${r.exercises.length} ejercicios • ${r.targetMin || 0} min` + (r.progressionWeek ? " • Semana " + r.progressionWeek : ""));
   $("#routineCardio") && ($("#routineCardio").textContent = r.cardioSuggest || "-");
   renderEquipmentChecklist($("#routineEquipmentList"), routineEquipment(r), `routine:${r.id}`);
 
@@ -3067,7 +3068,7 @@ function renderEditorRow(ex) {
   const rest = timeField("rest", ex.rest);
   const restAfter = timeField("restAfter", ex.restAfter);
   const notes = el("input", { class:"input input--sm", type:"text", value: ex.notes || "", placeholder:"Notas", "data-field":"notes" });
-  const imageUrl = el("input", { class:"input input--sm", type:"url", value: cleanMediaUrl(ex.imageUrl || ""), placeholder:"URL imagen", "data-field":"imageUrl" });
+  const imageUrl = el("input", { class:"input input--sm", type:"url", value: cleanMediaUrl(ex.imageUrl || ""), placeholder:"Enlace de la imagen", "data-field":"imageUrl" });
   const aiImageControls = exerciseImageControls(() => ({ name: name.value, notes: notes.value }));
   const imagePreview = el("div", { class:"editor-image-preview" });
   const updatePreview = () => {
@@ -3079,7 +3080,7 @@ function renderEditorRow(ex) {
   const videoUrl = el("input", { class:"input input--sm", type:"url", value: cleanMediaUrl(ex.videoUrl || ""), placeholder:"Link video", "data-field":"videoUrl" });
   const fileInput = el("input", { type:"file", accept:"image/*", hidden:true, "data-field":"imageFile" });
 
-  const uploadBtn = el("button", { class:"btn btn--ghost btn--sm", type:"button", title:"Subir imagen o GIF animado a Firebase Storage" }, [
+  const uploadBtn = el("button", { class:"btn btn--ghost btn--sm", type:"button", title:"Subir una imagen" }, [
     el("span", { class:"icon", text:"🖼️", "aria-hidden":"true" }),
     el("span", { text:"Subir" })
   ]);
@@ -3151,7 +3152,7 @@ function renderEditorRow(ex) {
   const media = el("details", { class:"editor-group editor-group--media" }, [
     el("summary", { text:"Imagen, GIF o video (opcional)" }),
     el("div", { class:"editor-media-fields" }, [
-      cell("URL de imagen o GIF", imageUrl),
+      cell("Enlace de imagen", imageUrl),
       cell("Enlace de video", videoUrl),
       el("div", { class:"editor-media-actions" }, [uploadBtn, galleryBtn])
     ])
@@ -4200,10 +4201,10 @@ function importJSONFromFile(file) {
       normalizeLoadedMedia();
       savePrefs(); saveRoutines(); saveSessions(); saveObjectives();
       applyTheme();
-      toast("Importado", "Datos cargados.", "ok");
+      toast("Copia recuperada", "Ya puedes ver las rutinas y sesiones de esa copia.", "ok");
       scheduleRender();
     } catch (e) {
-      toast("Import falló", "Ese archivo no es un export válido.", "bad");
+      toast("No pudimos abrir la copia", "Elige un archivo que hayas descargado desde GymOS.", "bad");
       console.error(e);
     }
   };
@@ -4213,14 +4214,14 @@ function importJSONFromFile(file) {
 async function resetAllData() {
   const ok = await confirmDialog({
     title: "Reiniciar TODO",
-    text: "Esto borra rutinas, sesiones, objetivos y preferencias en Firebase. No hay botón de arrepentimiento.",
+    text: "Se borrarán de tu cuenta las rutinas, sesiones, objetivos y preferencias de forma permanente.",
     yesText: "Borrar todo",
     noText: "Cancelar"
   });
   if (!ok) return;
   if (!firebaseBootstrapped) {
-    updateFirebaseStatus("Firebase", "Conecta Firebase antes de reiniciar datos.", "warn");
-    toast("Firebase requerido", "No se reinició porque la nube no está conectada.", "warn");
+    updateFirebaseStatus("En línea", "Conéctate a internet para borrar los datos de tu cuenta.", "warn");
+    toast("Necesitas conexión a internet", "No se reinició porque la nube no está conectada.", "warn");
     return;
   }
   Store.del(LS_KEYS.prefs);
@@ -4233,10 +4234,10 @@ async function resetAllData() {
   applyTheme();
   const saved = await pushFirebaseNow(false);
   if (!saved) {
-    toast("No se reinició en Firebase", "Revisa conexión o reglas antes de continuar.", "warn");
+    toast("No se borraron tus datos", "Revisa conexión o reglas antes de continuar.", "warn");
     return;
   }
-  toast("Reiniciado", "Firebase quedó limpio para este usuario.", "ok");
+  toast("Reiniciado", "Se borraron las rutinas, sesiones, objetivos y preferencias de tu cuenta.", "ok");
   scheduleRender();
 }
 
@@ -5730,7 +5731,7 @@ function bindAuthUI() {
     btnGoogle.addEventListener("click", async () => {
       const sync = window.FirebaseSync;
       if (!sync || !sync.ready) {
-        showLoginError("Firebase no disponible. Revisa tu conexión a internet.");
+        showLoginError("Sin conexión. Revisa tu conexión a internet.");
         return;
       }
       btnGoogle.disabled = true;
@@ -5743,7 +5744,7 @@ function bindAuthUI() {
         console.error("[Auth] Error login Google:", err);
         btnGoogle.disabled = false;
         btnGoogle.innerHTML = `<svg class="btn-google__icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg> Entrar con Google`;
-        showLoginError(err.code === "auth/popup-closed-by-user" ? "Cerraste el popup. Inténtalo de nuevo." : "No se pudo iniciar sesión. Intenta de nuevo.");
+        showLoginError(err.code === "auth/popup-closed-by-user" ? "Se cerró la ventana para iniciar sesión. Intenta de nuevo." : "No se pudo iniciar sesión. Intenta de nuevo.");
       }
     });
   }

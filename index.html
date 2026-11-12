@@ -8,7 +8,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
 
   <title>GymOS • Registro de Entrenamiento</title>
-  <meta name="description" content="GymOS: rutinas, sesiones y progreso sincronizados con Firebase." />
+  <meta name="description" content="Crea rutinas, registra tus entrenamientos y sigue tu progreso con GymOS." />
 
   <!-- Si lo vas a publicar real, cambia a index,follow -->
   <meta name="robots" content="noindex,nofollow" />
@@ -57,7 +57,7 @@
 
   <script defer src="./functions/exercise-identity.js?v=0.13.0"></script>
   <script defer src="./functions/exercise-catalog.js?v=0.13.0"></script>
-  <script defer src="./app.js?v=0.13.2"></script>
+  <script defer src="./app.js?v=0.13.3"></script>
 
   <!-- =========================
        Service Worker (PWA)
@@ -202,22 +202,22 @@
         <div class="mini-card">
           <div class="mini-card__title">Estado</div>
           <div class="mini-card__row">
-            <span class="pill" id="pillStorage">Firebase</span>
+            <span class="pill" id="pillStorage">En línea</span>
             <span class="pill pill--ok" id="pillOffline">Nube requerida</span>
           </div>
           <div class="mini-card__hint" id="storageHint">
-            Tus datos se guardan en Firebase. Necesitas conexión para sincronizar cambios.
+            Conéctate a internet para guardar los cambios en tu cuenta.
           </div>
         </div>
 
         <button id="btnExport" class="btn btn--ghost" type="button">
           <span class="icon" aria-hidden="true">⬇️</span>
-          Exportar
+          Descargar copia
         </button>
 
         <button id="btnImport" class="btn btn--ghost" type="button">
           <span class="icon" aria-hidden="true">⬆️</span>
-          Importar
+          Recuperar copia
         </button>
 
         <input id="fileImport" type="file" accept="application/json" hidden />
@@ -305,7 +305,7 @@
                   <div class="kpi">
                     <div class="kpi__label">Volumen (7 días)</div>
                     <div class="kpi__value" id="kpiVolume7">0</div>
-                    <div class="kpi__hint muted">Series × reps × peso</div>
+                    <div class="kpi__hint muted">Series × repeticiones × peso</div>
                   </div>
                   <div class="kpi">
                     <div class="kpi__label">Récords recientes</div>
@@ -482,7 +482,7 @@
                 <div class="empty" id="routinesEmpty">
                   <div class="empty__icon" aria-hidden="true">🗂️</div>
                   <div class="empty__title">Aún no hay rutinas</div>
-                  <div class="empty__text">Crea una rutina o carga tu base histórica.</div>
+                  <div class="empty__text">Crea una rutina o recupera una copia anterior.</div>
                 </div>
                 <div class="list-grid is-hidden" id="routinesGrid"></div>
               </div>
@@ -725,9 +725,9 @@
                 </select>
               </label>
 
-              <button id="btnHistoryExportCSV" class="btn btn--ghost" type="button" title="Exportar CSV (sesiones)">
+              <button id="btnHistoryExportCSV" class="btn btn--ghost" type="button" title="Descargar lista de entrenamientos">
                 <span class="icon" aria-hidden="true">📄</span>
-                Exportar sesiones
+                Descargar sesiones
               </button>
             </div>
           </div>
@@ -954,13 +954,13 @@
                       <div class="label">Estado</div>
                       <div class="muted" id="firebaseStatusText">Preparando conexión…</div>
                     </div>
-                    <span class="pill" id="firebaseStatusPill">Firebase</span>
+                    <span class="pill" id="firebaseStatusPill">Conectando</span>
                   </div>
 
                   <div class="row row--between">
                     <div>
                       <div class="label">Guardar los cambios</div>
-                      <div class="muted">Envía tus rutinas y sesiones actuales a la nube</div>
+                      <div class="muted">Guarda en tu cuenta las rutinas y sesiones de este dispositivo</div>
                     </div>
                     <button id="btnPushFirebase" class="btn" type="button">Guardar ahora</button>
                   </div>
@@ -968,7 +968,7 @@
                   <div class="row row--between">
                     <div>
                       <div class="label">Recargar los datos guardados</div>
-                      <div class="muted">Recarga el estado guardado en la nube</div>
+                      <div class="muted">Abre la última copia guardada en tu cuenta</div>
                     </div>
                     <button id="btnPullFirebase" class="btn" type="button">Recargar datos</button>
                   </div>
@@ -983,7 +983,7 @@
             <article class="card">
               <div class="card__head">
                 <h2>Respaldo y recuperación</h2>
-                <div class="muted">Importar, exportar y reiniciar</div>
+                <div class="muted">Guarda una copia o recupera una anterior</div>
               </div>
 
               <div class="card__body">
@@ -993,7 +993,7 @@
                       <div class="label">Descargar un respaldo</div>
                       <div class="muted">Respaldo completo</div>
                     </div>
-                    <button id="btnExport2" class="btn" type="button">Exportar</button>
+                    <button id="btnExport2" class="btn" type="button">Descargar copia</button>
                   </div>
 
                   <div class="row row--between">
@@ -1001,7 +1001,7 @@
                       <div class="label">Restaurar un respaldo</div>
                       <div class="muted">Restaura un respaldo</div>
                     </div>
-                    <button id="btnImport2" class="btn" type="button">Importar</button>
+                    <button id="btnImport2" class="btn" type="button">Recuperar copia</button>
                   </div>
 
                   <hr class="sep" />
@@ -1009,7 +1009,7 @@
                   <div class="row row--between">
                     <div>
                       <div class="label danger">Reiniciar todo</div>
-                      <div class="muted">Borra rutinas y sesiones y sincroniza el cambio en Firebase</div>
+                      <div class="muted">Borra las rutinas, sesiones, objetivos y preferencias de tu cuenta</div>
                     </div>
                     <button id="btnResetAll" class="btn btn--danger" type="button">Reiniciar</button>
                   </div>
@@ -1190,7 +1190,7 @@
           </label>
           <p id="routineAiStatus" class="muted" role="status"></p>
           <section id="programAiPreview" class="form is-hidden" aria-label="Borrador del programa"></section>
-          <p class="muted">Hasta 10 intentos diarios por cuenta. Tu descripción se envía a Gemini para preparar el borrador.</p>
+          <p class="muted">Hasta 10 intentos diarios por cuenta. La IA recibe tu descripción para preparar el borrador.</p>
         </div>
         <div class="modal__foot">
           <button class="btn" type="button" data-close>Cancelar</button>
@@ -1225,7 +1225,7 @@
 
             <label class="field">
               <span class="field__label">Etiqueta</span>
-              <input id="routineTag" class="input" type="text" placeholder="Ej. Pierna, Core, Brazos…" />
+              <input id="routineTag" class="input" type="text" placeholder="Ej. Piernas, abdomen, brazos…" />
             </label>
           </div>
 
@@ -1370,7 +1370,7 @@
       <div class="modal__backdrop" data-close></div>
       <div class="modal__panel" role="document">
         <div class="modal__head">
-          <h3 id="modalHelpTitle">❔ Ayuda — Cómo usar GymOS</h3>
+          <h3 id="modalHelpTitle">Cómo usar GymOS</h3>
           <button class="icon-btn" type="button" data-close aria-label="Cerrar">
             <span class="icon" aria-hidden="true">✕</span>
           </button>
@@ -1381,40 +1381,72 @@
             <div class="help__item">
               <div class="help__icon" aria-hidden="true">🗂️</div>
               <div>
-                <div class="help__title">1. Crea una rutina</div>
-                <div class="help__text muted">En <strong>Rutinas</strong> arma tu día de entrenamiento: nombre, ejercicios y series/reps/peso sugeridos.</div>
+                <div class="help__title">Arma una rutina</div>
+                <div class="help__text muted">En <strong>Rutinas → Nueva rutina</strong>, ponle un nombre y agrega los ejercicios. Puedes indicar series, repeticiones, peso, tiempo y descansos.</div>
               </div>
             </div>
 
             <div class="help__item">
-              <div class="help__icon" aria-hidden="true">➕</div>
+              <div class="help__icon" aria-hidden="true">✨</div>
               <div>
-                <div class="help__title">2. Registra una sesión</div>
-                <div class="help__text muted">En <strong>Nueva sesión</strong> (o <em>Iniciar sesión rápida</em>) anota lo que hiciste de verdad: pesos, repeticiones y cardio.</div>
+                <div class="help__title">Crea una rutina con IA</div>
+                <div class="help__text muted">En <strong>Rutinas → Crear con IA</strong>, elige la duración y cuenta qué quieres trabajar, tu nivel y qué equipo tienes. Por ejemplo: «Quiero 15 minutos de movilidad para caderas, soy principiante y tengo una colchoneta». Toca <strong>Generar borrador</strong>, revisa los ejercicios, ajusta lo que necesites y guarda.</div>
+              </div>
+            </div>
+
+            <div class="help__item">
+              <div class="help__icon" aria-hidden="true">📅</div>
+              <div>
+                <div class="help__title">Planea toda tu semana con IA</div>
+                <div class="help__text muted">En <strong>Rutinas → Gestionar programa → Crear programa con IA</strong>, indica la duración por día y describe tu objetivo. Por ejemplo: «Quiero 3 días a la semana para mejorar la movilidad de caderas, espalda y hombros». Puedes escribir la cantidad de días en la descripción o elegirla en el formulario. Abre cada día del borrador para ver los ejercicios y toca <strong>Guardar programa</strong> para guardar todas las rutinas juntas.</div>
+              </div>
+            </div>
+
+            <div class="help__item">
+              <div class="help__icon" aria-hidden="true">👆</div>
+              <div>
+                <div class="help__title">Abre una rutina y prepara tu equipo</div>
+                <div class="help__text muted">Toca una tarjeta para ir a sus ejercicios. Quedará marcada como <strong>Seleccionada</strong>. Usa <strong>Volver a la lista</strong> para regresar. En el detalle puedes revisar el equipo necesario y usar <strong>Crear imágenes IA</strong> para añadir ilustraciones de los ejercicios.</div>
+              </div>
+            </div>
+
+            <div class="help__item">
+              <div class="help__icon" aria-hidden="true">▶️</div>
+              <div>
+                <div class="help__title">Entrena con tu rutina</div>
+                <div class="help__text muted">Toca <strong>Entrenar con esta rutina</strong> para empezar. Sigue las indicaciones y los avisos de tiempo y descanso. Registra las repeticiones, los pesos o el cardio que hiciste y guarda al terminar. También puedes abrir <strong>Entrenar</strong> desde el menú.</div>
+              </div>
+            </div>
+
+            <div class="help__item">
+              <div class="help__icon" aria-hidden="true">📤</div>
+              <div>
+                <div class="help__title">Comparte una rutina o un programa</div>
+                <div class="help__text muted">En la rutina, abre <strong>Más opciones → Compartir</strong>. Para enviar todos los días juntos, abre <strong>Gestionar programa → Compartir</strong>. La otra persona lo encontrará en <strong>Rutinas → Compartidos contigo</strong>.</div>
+              </div>
+            </div>
+
+            <div class="help__item">
+              <div class="help__icon" aria-hidden="true">🎵</div>
+              <div>
+                <div class="help__title">Pon música y registra cómo te sientes</div>
+                <div class="help__text muted">Durante el entrenamiento, toca el botón de <strong>Música</strong> para elegir una pista. En los ejercicios de flexibilidad puedes abrir <strong>Registrar amplitud y comodidad</strong> y comparar tus registros en <strong>Progreso</strong>.</div>
               </div>
             </div>
 
             <div class="help__item">
               <div class="help__icon" aria-hidden="true">📈</div>
               <div>
-                <div class="help__title">3. Mira tu progreso</div>
-                <div class="help__text muted"><strong>Inicio</strong> resume tus últimos 7 días y tu constancia. En <strong>Progreso</strong> ves tendencias por ejercicio.</div>
-              </div>
-            </div>
-
-            <div class="help__item">
-              <div class="help__icon" aria-hidden="true">🎯</div>
-              <div>
-                <div class="help__title">4. Sigue tus objetivos y tu ejercicio destacado</div>
-                <div class="help__text muted">En <strong>Objetivos</strong> fijas tus metas. En <strong>Progreso</strong> puedes destacar un ejercicio para seguir su evolución en el inicio.</div>
+                <div class="help__title">Sigue tus metas y tu progreso</div>
+                <div class="help__text muted">En <strong>Historial</strong> puedes consultar lo que entrenaste. En <strong>Objetivos</strong> puedes fijar tus metas. En <strong>Progreso</strong> puedes ver cómo avanzas y destacar un ejercicio para seguirlo desde <strong>Inicio</strong>. Si quieres planear aumentos de peso, series o repeticiones, revisa <strong>Gestionar programa → Progresión</strong>.</div>
               </div>
             </div>
 
             <div class="help__item">
               <div class="help__icon" aria-hidden="true">☁️</div>
               <div>
-                <div class="help__title">Tus datos están a salvo</div>
-                <div class="help__text muted">Todo se guarda en Firebase y se sincroniza con tu cuenta. Puedes <strong>Exportar</strong> o <strong>Importar</strong> en JSON desde el menú lateral.</div>
+                <div class="help__title">Guarda una copia de tu entrenamiento</div>
+                <div class="help__text muted">Con tu cuenta y conexión a internet, GymOS guarda tus cambios. En <strong>Ajustes → Respaldo y recuperación</strong> puedes descargar una copia de tus rutinas y sesiones o recuperar una copia anterior.</div>
               </div>
             </div>
           </div>
@@ -1468,13 +1500,13 @@
           </label>
 
           <label class="field">
-            <span class="field__label">URL Imagen del Cardio</span>
-            <input id="cardioImageUrl" class="input" type="url" placeholder="Ej. https://url-imagen.jpg" />
+            <span class="field__label">Enlace de la imagen de cardio</span>
+            <input id="cardioImageUrl" class="input" type="url" placeholder="Pega el enlace de la imagen" />
           </label>
           <div class="row" style="margin-top: -6px;">
             <input id="cardioImageFile" type="file" accept="image/*" hidden />
             <button id="btnUploadCardioImage" class="btn btn--ghost btn--sm" type="button" style="width: 100%;">
-              <span class="icon" aria-hidden="true">🖼️</span> Subir imagen a Firebase
+              <span class="icon" aria-hidden="true">🖼️</span> Subir imagen
             </button>
           </div>
         </div>
@@ -1675,7 +1707,7 @@
       <article class="tile" role="button" tabindex="0">
         <div class="tile__top">
           <div class="tile__title">Nombre rutina</div>
-          <div class="pill">Tag</div>
+          <div class="pill">Categoría</div>
         </div>
         <div class="muted tile__meta">Duración • # ejercicios</div>
         <div class="tile__selected">✓ Seleccionada</div>
