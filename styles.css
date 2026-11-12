@@ -863,6 +863,17 @@ input, textarea, select {
 
 .tile__title { font-weight: 860; }
 .tile__meta { margin-top: 6px; font-size: 12px; }
+.tile[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.tile__selected {
+  display: none;
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.tile[aria-pressed="true"] .tile__selected { display: block; }
 
 /* ---------------------------
    TOOLBAR / SEARCH

@@ -40,8 +40,8 @@
   <!-- =========================
        PERFORMANCE / CSS
   ========================== -->
-  <link rel="preload" href="./styles.css?v=0.13.0" as="style" />
-  <link rel="stylesheet" href="./styles.css?v=0.13.0" />
+  <link rel="preload" href="./styles.css?v=0.13.2" as="style" />
+  <link rel="stylesheet" href="./styles.css?v=0.13.2" />
 
   <!-- =========================
        JS (orden: Firebase -> app)
@@ -57,7 +57,7 @@
 
   <script defer src="./functions/exercise-identity.js?v=0.13.0"></script>
   <script defer src="./functions/exercise-catalog.js?v=0.13.0"></script>
-  <script defer src="./app.js?v=0.13.1"></script>
+  <script defer src="./app.js?v=0.13.2"></script>
 
   <!-- =========================
        Service Worker (PWA)
@@ -488,10 +488,10 @@
               </div>
             </article>
 
-            <article class="card">
+            <article class="card" id="routineDetailPanel">
               <div class="card__head">
-                <h2>Tu rutina</h2>
-                <div class="muted">Selecciona una rutina</div>
+                <h2 id="routineDetailTitle" tabindex="-1">Tu rutina</h2>
+                <button id="btnBackToRoutines" class="btn btn--ghost is-hidden" type="button">Volver a la lista</button>
               </div>
               <div class="card__body">
                 <div class="empty" id="routineDetailEmpty">
@@ -1678,6 +1678,7 @@
           <div class="pill">Tag</div>
         </div>
         <div class="muted tile__meta">Duración • # ejercicios</div>
+        <div class="tile__selected">✓ Seleccionada</div>
       </article>
     </template>
 

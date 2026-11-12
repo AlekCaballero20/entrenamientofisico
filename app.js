@@ -24,7 +24,7 @@
 /* ---------------------------
    CONSTANTS / KEYS
 --------------------------- */
-const APP_VERSION = "0.13.1";
+const APP_VERSION = "0.13.2";
 
 // Cache interna por usuario: no es un modo local de trabajo, solo evita perder
 // estado temporal mientras Firestore termina de responder.
@@ -2345,6 +2345,7 @@ function renderRoutines() {
     const hay = `${r.name} ${r.tag} ${(r.exercises||[]).map(e=>e.name).join(" ")}`.toLowerCase();
     return hay.includes(q);
   });
+  grid.replaceChildren();
 
   if (!filtered.length) {
     empty.classList.remove("is-hidden");
@@ -2352,8 +2353,6 @@ function renderRoutines() {
   } else {
     empty.classList.add("is-hidden");
     grid.classList.remove("is-hidden");
-    grid.innerHTML = "";
-
     const tpl = $("#tplRoutineCard");
     filtered.forEach(r => {
       const node = tpl?.content?.firstElementChild?.cloneNode(true);
@@ -2364,10 +2363,17 @@ function renderRoutines() {
       const pill = $(".pill", node);
       pill.textContent = r.tag || "Sin tag";
 
-      node.addEventListener("click", () => { State.selectedRoutineId = r.id; scheduleRender(); });
+      node.setAttribute("aria-pressed", String(State.selectedRoutineId === r.id));
+      node.addEventListener("click", () => {
+        State.selectedRoutineId = r.id;
+        renderRoutines();
+        $("#routineDetailTitle").focus({ preventScroll:true });
+        scrollToRoutineSection($("#routineDetailPanel"));
+      });
       node.addEventListener("keydown", (e) => {
         if (e.key === "Enter" || e.key === " ") {
-          State.selectedRoutineId = r.id; scheduleRender();
+          e.preventDefault();
+          node.click();
         }
       });
 
@@ -2377,6 +2383,11 @@ function renderRoutines() {
 
   // Detail
   renderRoutineDetail();
+  $("#btnBackToRoutines").onclick = () => {
+    const target = $('.tile[aria-pressed="true"]', grid) || search;
+    target.focus({ preventScroll:true });
+    scrollToRoutineSection(target, "nearest");
+  };
 
   // Bind buttons each render is fine (idempotent by overwrite)
   $("#btnNewRoutine") && ($("#btnNewRoutine").onclick = () => openRoutineModal({ mode:"new" }));
@@ -2662,6 +2673,11 @@ function attachExerciseMediaToCard(card, ex) {
   if (!$(".flexibility-tracker", card)) appendFlexibilityTracker(card, ex);
 }
 
+function scrollToRoutineSection(target, block = "start") {
+  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  target.scrollIntoView({ block, behavior: reducedMotion ? "instant" : "smooth" });
+}
+
 function renderRoutineDetail() {
   const empty = $("#routineDetailEmpty");
   const detail = $("#routineDetail");
@@ -2670,6 +2686,7 @@ function renderRoutineDetail() {
 
   const id = State.selectedRoutineId;
   const r = State.routines.find(x => x.id === id);
+  $("#btnBackToRoutines").classList.toggle("is-hidden", !r);
 
   if (!r) {
     empty.classList.remove("is-hidden");
