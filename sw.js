@@ -16,7 +16,7 @@
 
 'use strict';
 
-const SW_VERSION = 'gymos-v1.13.4'; // súbelo cuando hagas cambios
+const SW_VERSION = 'gymos-v1.14.0'; // súbelo cuando hagas cambios
 const PREFIX = 'gymos';
 const CACHE_APP = `${PREFIX}-app-${SW_VERSION}`;
 const CACHE_RUNTIME = `${PREFIX}-runtime-${SW_VERSION}`;
@@ -31,6 +31,7 @@ const APP_SHELL = [
   // JS (tu orden real)
   './firebase-sync.js',
   './app.js',
+  './workout-reminders.js',
   './functions/exercise-identity.js',
   './functions/exercise-catalog.js',
 
@@ -61,6 +62,7 @@ function isAppShellRequest(req) {
     p.endsWith('/index.html') ||
     p.endsWith('/styles.css') ||
     p.endsWith('/app.js') ||
+    p.endsWith('/workout-reminders.js') ||
     p.endsWith('/firebase-sync.js') ||
     p.endsWith('/manifest.webmanifest') ||
     p.includes('/icons/')

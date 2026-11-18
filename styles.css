@@ -2641,6 +2641,7 @@ body.workout-open { overflow: hidden; }
 }
 
 .workout-mode__counter { font-size: 12px; margin-top: 2px; }
+.workout-mode__exit { max-width: 94px; line-height: 1.15; }
 
 .workout-mode__cardio {
   border-color: rgba(255,91,112,.35);
@@ -2779,9 +2780,13 @@ body.workout-open { overflow: hidden; }
 
 .start-hero__actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
   align-items: flex-end;
 }
+
+#workoutResume { align-items: center; }
+#workoutResumeStatus { line-height: 1.4; }
 
 .start-hero__field { flex: 1 1 auto; min-width: 0; }
 .start-hero__field .input { width: 100%; }

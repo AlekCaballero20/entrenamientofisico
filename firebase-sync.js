@@ -127,6 +127,10 @@
   // Sign-In con Google (popup)
   Sync.signInWithGoogle = async function () {
     await Sync.ready;
+    if (window.GymReminders?.native) {
+      const idToken = await window.GymReminders.request("signIn");
+      return Sync.auth.signInWithCredential(window.firebase.auth.GoogleAuthProvider.credential(idToken));
+    }
     const provider = new window.firebase.auth.GoogleAuthProvider();
     provider.setCustomParameters({ prompt: "select_account" });
     return Sync.auth.signInWithPopup(provider);
@@ -136,6 +140,7 @@
   Sync.signOut = async function () {
     await Sync.ready;
     await Sync.auth.signOut();
+    if (window.GymReminders?.native) window.GymReminders.request("signOut").catch(console.warn);
   };
 
   // Cargar estado del usuario actual

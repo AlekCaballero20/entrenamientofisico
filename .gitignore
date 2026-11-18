@@ -1,3 +1,9 @@
 node_modules/
 .secret.local
 firebase-debug*.log
+android/.gradle/
+android/.idea/
+android/build/
+android/app/build/
+android/local.properties
+*.apk

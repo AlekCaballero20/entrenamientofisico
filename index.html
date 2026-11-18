@@ -40,8 +40,8 @@
   <!-- =========================
        PERFORMANCE / CSS
   ========================== -->
-  <link rel="preload" href="./styles.css?v=0.13.4" as="style" />
-  <link rel="stylesheet" href="./styles.css?v=0.13.4" />
+  <link rel="preload" href="./styles.css?v=0.14.0" as="style" />
+  <link rel="stylesheet" href="./styles.css?v=0.14.0" />
 
   <!-- =========================
        JS (orden: Firebase -> app)
@@ -53,11 +53,12 @@
   <script defer src="https://www.gstatic.com/firebasejs/10.13.2/firebase-storage-compat.js"></script>
   <script defer src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
   <script defer src="https://www.gstatic.com/firebasejs/10.13.2/firebase-functions-compat.js"></script>
-  <script defer src="./firebase-sync.js"></script>
+  <script defer src="./firebase-sync.js?v=0.14.0"></script>
 
   <script defer src="./functions/exercise-identity.js?v=0.13.0"></script>
   <script defer src="./functions/exercise-catalog.js?v=0.13.0"></script>
-  <script defer src="./app.js?v=0.13.4"></script>
+  <script defer src="./workout-reminders.js?v=0.14.0"></script>
+  <script defer src="./app.js?v=0.14.0"></script>
 
   <!-- =========================
        Service Worker (PWA)
@@ -66,7 +67,7 @@
   ========================== -->
   <script>
     (function () {
-      if (!('serviceWorker' in navigator)) return;
+      if (window.GymOSAndroid || !('serviceWorker' in navigator)) return;
 
       window.addEventListener('load', async () => {
         try {
@@ -575,10 +576,34 @@
                   <option value="">Selecciona una rutina…</option>
                 </select>
               </label>
+              <label class="field">
+                <span class="field__label">Cómo entrenar</span>
+                <select id="workoutStyle" class="input">
+                  <option value="continuous">De corrido</option>
+                  <option value="daily">Durante el día</option>
+                </select>
+              </label>
+              <label id="workoutReminderField" class="field is-hidden">
+                <span class="field__label">Recordarme después de</span>
+                <select id="workoutReminderMinutes" class="input">
+                  <option value="0">Sin recordatorio</option>
+                  <option value="15">15 minutos</option>
+                  <option value="30">30 minutos</option>
+                  <option value="60" selected>1 hora</option>
+                  <option value="120">2 horas</option>
+                  <option value="180">3 horas</option>
+                  <option value="240">4 horas</option>
+                </select>
+              </label>
               <button id="btnStartWorkout" class="btn btn--primary start-hero__btn" type="button">
                 <span class="icon" aria-hidden="true">🏋️</span>
                 Empezar a entrenar
               </button>
+            </div>
+            <div id="workoutResume" class="start-hero__actions is-hidden">
+              <span id="workoutResumeStatus" role="status"></span>
+              <button id="btnResumeWorkout" class="btn btn--primary" type="button">Continuar rutina</button>
+              <button id="btnSnoozeWorkout" class="btn is-hidden" type="button">Posponer aviso</button>
             </div>
           </article>
 
@@ -1610,8 +1635,8 @@
     <!-- OVERLAY: Modo Entrenamiento (enfoque móvil) -->
     <div id="workout-mode" class="workout-mode is-hidden" role="dialog" aria-modal="true" aria-label="Modo entrenamiento">
       <header class="workout-mode__head">
-        <button id="btnExitWorkout" class="icon-btn workout-mode__exit" type="button" aria-label="Salir del modo entrenamiento">
-          <span class="icon" aria-hidden="true">✕</span>
+        <button id="btnExitWorkout" class="btn btn--sm workout-mode__exit" type="button">
+          Guardar y salir
         </button>
         <div class="workout-mode__titles">
           <div class="workout-mode__routine" id="workoutRoutineName">Entrenamiento</div>

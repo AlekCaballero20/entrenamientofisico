@@ -24,7 +24,7 @@
 /* ---------------------------
    CONSTANTS / KEYS
 --------------------------- */
-const APP_VERSION = "0.13.3";
+const APP_VERSION = "0.14.0";
 
 // Cache interna por usuario: no es un modo local de trabajo, solo evita perder
 // estado temporal mientras Firestore termina de responder.
@@ -978,6 +978,8 @@ function setDraftSession(draft) {
 function clearDraftSession() {
   State.sessionDraft = null;
   Store.del(LS_KEYS.draft);
+  GymReminders.cancel();
+  renderWorkoutResume();
 }
 
 /* ---------------------------
@@ -3472,7 +3474,7 @@ function renderNewSession() {
   $("#sessionDate") && ($("#sessionDate").value = $("#sessionDate").value || todayISO());
   $("#weightUnit") && ($("#weightUnit").value = State.prefs.unit);
 
-  if (State.sessionDraft && State.prefs.autosave === "on") {
+  if (State.sessionDraft && (State.prefs.autosave === "on" || State.sessionDraft.workoutStyle)) {
     applyDraftToSessionUI(State.sessionDraft);
   }
 
@@ -3488,7 +3490,7 @@ function renderNewSession() {
   $("#btnAddCardio") && ($("#btnAddCardio").onclick = () => openCardioModal());
   $("#btnSaveSession") && ($("#btnSaveSession").onclick = () => saveSessionFromUI());
   $("#btnPreviewSession") && ($("#btnPreviewSession").onclick = () => previewSession());
-  $("#btnWorkoutMode") && ($("#btnWorkoutMode").onclick = () => WorkoutMode.enter());
+  $("#btnWorkoutMode") && ($("#btnWorkoutMode").onclick = () => quickStartWorkout());
 
   sel && (sel.onchange = () => { renderSessionEquipment(); syncStartRoutineSelect(); });
 
@@ -3501,6 +3503,10 @@ function renderNewSession() {
     sel.dispatchEvent(new Event("change", { bubbles:true }));
   };
   $("#btnStartWorkout") && ($("#btnStartWorkout").onclick = () => quickStartWorkout());
+  $("#workoutStyle").onchange = () => $("#workoutReminderField").classList.toggle("is-hidden", $("#workoutStyle").value !== "daily");
+  $("#btnResumeWorkout").onclick = () => resumeWorkout();
+  $("#btnSnoozeWorkout").onclick = () => remindWorkout();
+  renderWorkoutResume();
 
   renderSessionEquipment();
 
@@ -3539,6 +3545,73 @@ function syncStartRoutineSelect() {
   start.value = form.value || "";
 }
 
+function renderWorkoutResume() {
+  const draft = State.sessionDraft;
+  const show = !!(draft?.workoutStyle || draftHasProgress(draft));
+  const box = $("#workoutResume");
+  if (!box) return;
+  for (const id of ["startRoutineSelect", "sessionRoutineSelect", "workoutStyle", "workoutReminderMinutes"]) {
+    $(`#${id}`).disabled = show;
+  }
+  $("#btnStartWorkout").classList.toggle("is-hidden", show);
+  box.classList.toggle("is-hidden", !show);
+  if (!show) return;
+  if (draft.workoutStyle) {
+    $("#workoutStyle").value = draft.workoutStyle;
+    if (draft.workoutStyle === "daily") $("#workoutReminderMinutes").value = String(draft.reminderMinutes);
+    $("#workoutReminderField").classList.toggle("is-hidden", draft.workoutStyle !== "daily");
+  }
+  const index = Number(draft.workoutIndex || 0);
+  const name = draft.exercises?.[index]?.name || "Rutina pendiente";
+  const at = draft.reminderAt;
+  const due = at && at <= Date.now();
+  $("#workoutResumeStatus").textContent = [
+    `${draft.routineName || "Rutina"} · ${name}`,
+    at ? (due ? "Ya puedes continuar" : `Aviso a las ${new Date(at).toLocaleTimeString("es-CO", { hour:"numeric", minute:"2-digit" })}`) : "",
+    at && !GymReminders.native ? "Aviso en GymOS mientras esté abierto" : ""
+  ].filter(Boolean).join(" · ");
+  const snooze = $("#btnSnoozeWorkout");
+  snooze.classList.toggle("is-hidden", draft.workoutStyle !== "daily" || !draft.reminderMinutes);
+  snooze.textContent = at ? "Posponer aviso" : "Programar aviso";
+}
+
+async function remindWorkout() {
+  const draft = State.sessionDraft;
+  if (!draft?.reminderMinutes) return;
+  const at = Date.now() + draft.reminderMinutes * 60000;
+  draft.reminderAt = at;
+  setDraftSession(draft);
+  renderWorkoutResume();
+  try {
+    await GymReminders.schedule(at, draft.exercises[draft.workoutIndex]?.name, workoutReminderDue);
+  } catch (error) {
+    if (State.sessionDraft?.reminderAt !== at) return;
+    State.sessionDraft.reminderAt = null;
+    setDraftSession(State.sessionDraft);
+    renderWorkoutResume();
+    toast("Aviso sin programar", error.message, "warn");
+  }
+}
+
+function workoutReminderDue() {
+  renderWorkoutResume();
+  toast("Siguiente ejercicio", "Abre tu rutina para continuar.", "ok");
+}
+
+function resumeWorkout() {
+  const draft = State.sessionDraft;
+  if (!draft?.exercises?.length) return;
+  GymReminders.cancel();
+  draft.reminderAt = null;
+  setDraftSession(draft);
+  location.hash = "#new-session";
+  if (WorkoutMode.active) WorkoutMode.exit();
+  applyDraftToSessionUI(draft);
+  setTimeout(() => {
+    if (State.sessionDraft === draft) WorkoutMode.enter(draft.workoutIndex || 0);
+  }, 180);
+}
+
 function quickStartWorkout() {
   if (location.hash !== "#new-session") location.hash = "#new-session";
 
@@ -3555,13 +3628,27 @@ function quickStartWorkout() {
     }
     syncStartRoutineSelect();
 
-    const cards = $$(".exercise-card", $("#sessionExercises"));
-    if (!cards.length) loadExercisesFromSelectedRoutine({ autoStart:true });
-    else WorkoutMode.enter(clamp(Number(State.sessionDraft?.workoutIndex || 0), 0, cards.length - 1));
+    const draft = State.sessionDraft;
+    if (draft?.workoutStyle || draftHasProgress(draft)) {
+      if (draft.routineId === sel.value) return resumeWorkout();
+      toast("Hay una rutina en curso", "Continúala o guárdala antes de iniciar otra.", "warn");
+      return;
+    }
+    const workoutStyle = $("#workoutStyle").value;
+    if (draft?.routineId === sel.value && WorkoutMode.cards().length) {
+      const pending = collectSessionDraftFromUI();
+      setWorkoutPlan(pending, workoutStyle);
+      WorkoutMode.enter();
+    } else loadExercisesFromSelectedRoutine({ autoStart:true, workoutStyle });
   }, 160);
 }
 
 function prefillNewSessionFromRoutine(routineId) {
+  if (State.sessionDraft?.workoutStyle || draftHasProgress(State.sessionDraft)) {
+    if (State.sessionDraft.routineId === routineId) resumeWorkout();
+    else toast("Hay una rutina en curso", "Continúala o guárdala antes de cargar otra.", "warn");
+    return;
+  }
   renderNewSession();
   $("#sessionRoutineSelect") && ($("#sessionRoutineSelect").value = routineId);
   $("#sessionDate") && ($("#sessionDate").value = todayISO());
@@ -3570,7 +3657,7 @@ function prefillNewSessionFromRoutine(routineId) {
   $("#sessionNotes") && ($("#sessionNotes").value = "");
   State.cardioDraft = null;
   renderCardioSummary();
-  loadExercisesFromSelectedRoutine();
+  loadExercisesFromSelectedRoutine({ autoStart:false });
 }
 
 function exercisePrescription(ex) {
@@ -3581,7 +3668,19 @@ function exercisePrescription(ex) {
   return [`${ex.sets || 1} series`, amount, weight].filter(Boolean).join(" · ");
 }
 
+function setWorkoutPlan(draft, style) {
+  draft.workoutIndex = 0;
+  draft.workoutStyle = style;
+  draft.reminderMinutes = style === "daily" ? Number($("#workoutReminderMinutes").value) : 0;
+  setDraftSession(draft);
+  renderWorkoutResume();
+}
+
 function loadExercisesFromSelectedRoutine(options={}) {
+  if (State.sessionDraft?.workoutStyle || draftHasProgress(State.sessionDraft)) {
+    toast("Hay una rutina en curso", "Continúala o guárdala antes de cargar otra.", "warn");
+    return;
+  }
   const routineId = $("#sessionRoutineSelect")?.value;
   if (!routineId) {
     toast("Selecciona rutina", "Primero elige una plantilla.", "warn");
@@ -3626,18 +3725,20 @@ function loadExercisesFromSelectedRoutine(options={}) {
   wrap.classList.remove("is-hidden");
   decorateExerciseCards();
 
-  setDraftSession(collectSessionDraftFromUI());
+  const autoStart = options.autoStart ?? window.matchMedia("(max-width: 980px)").matches;
+  setWorkoutPlan(collectSessionDraftFromUI(), autoStart ? (options.workoutStyle || $("#workoutStyle").value) : null);
   toast("Ejercicios cargados", r.name, "ok");
 
   // Entramos directo al modo entrenamiento: en móvil siempre (se ve solo lo
   // necesario) y en escritorio cuando se pidió arrancar de una.
-  if (options.autoStart || window.matchMedia("(max-width: 980px)").matches) {
+  if (autoStart) {
     setTimeout(() => WorkoutMode.enter(0), 200);
   }
 }
 
 function collectSessionDraftFromUI() {
-  const routineId = $("#sessionRoutineSelect")?.value || "";
+  const picker = $("#sessionRoutineSelect");
+  const routineId = picker?.value || (picker?.disabled ? State.sessionDraft?.routineId : "") || "";
   const r = State.routines.find(x => x.id === routineId);
 
   const date = $("#sessionDate")?.value || todayISO();
@@ -3753,7 +3854,7 @@ function bindSessionAutosaveOnce() {
   sessionAutosaveBound = true;
 
   const onChange = debounce(() => {
-    if (State.prefs.autosave !== "on") return;
+    if (!window.FirebaseSync?.currentUser || (State.prefs.autosave !== "on" && !State.sessionDraft?.workoutStyle)) return;
     setDraftSession(collectSessionDraftFromUI());
   }, 180);
 
@@ -3830,6 +3931,22 @@ async function saveSessionFromUI() {
     toast("Falta rutina", "Selecciona una rutina para guardar.", "warn");
     return;
   }
+  if (draft.workoutStyle === "daily") {
+    const performed = draft.exercises.map(ex => ({
+      ...ex, sets: (ex.doneSets || []).filter(Boolean).length
+    })).filter(ex => ex.sets > 0);
+    if (performed.length !== draft.exercises.length ||
+        performed.some(ex => ex.doneSets.some(done => !done))) {
+      const ok = await confirmDialog({
+        title: "Cerrar rutina parcial",
+        text: "Se guardarán las series completadas y se cancelará el aviso pendiente.",
+        yesText: "Guardar avance",
+        noText: "Seguir después"
+      });
+      if (!ok) return;
+    }
+    draft.exercises = performed;
+  }
   if (!draft.exercises.length && !draft.cardio) {
     const ok = await confirmDialog({
       title: "Sesión sin ejercicios",
@@ -3845,7 +3962,8 @@ async function saveSessionFromUI() {
   const r = State.routines.find(x => x.id === draft.routineId);
   draft.routineName = r?.name || draft.routineName || "Sesión";
 
-  const s = createSession(draft);
+  const { reminderAt, reminderMinutes, workoutIndex, updatedAt, ...session } = draft;
+  const s = createSession(session);
   const prDetected = detectSessionPRs(s, prBefore);
 
   clearDraftSession();
@@ -4051,6 +4169,10 @@ function openSessionDrawer(id) {
   });
 
   $("#btnCloneToDraft") && ($("#btnCloneToDraft").onclick = () => {
+    if (State.sessionDraft?.workoutStyle || draftHasProgress(State.sessionDraft)) {
+      toast("Hay una rutina en curso", "Guarda o continúa tu rutina actual.", "warn");
+      return;
+    }
     // clonar al borrador y mandar a nueva sesión
     State.cardioDraft = s.cardio || null;
     setDraftSession({
@@ -4062,7 +4184,7 @@ function openSessionDrawer(id) {
       rpe: s.rpe,
       notes: s.notes,
       cardio: s.cardio || null,
-      exercises: (s.exercises || []).map(ex => ({ ...ex }))
+      exercises: (s.exercises || []).map(ex => ({ ...ex, doneSets: [] }))
     });
     closeDrawer("#drawerSession");
     location.hash = "#new-session";
@@ -4256,7 +4378,7 @@ async function resetAllData() {
   Store.del(LS_KEYS.routines);
   Store.del(LS_KEYS.sessions);
   Store.del(LS_KEYS.objectives);
-  Store.del(LS_KEYS.draft);
+  clearDraftSession();
   Store.del(LS_KEYS.focusExercise);
   loadAll();
   applyTheme();
@@ -4867,6 +4989,13 @@ const GymTimer = {
 
     if (this.mode==="restAfter") { this.endRestAfter(); return; }
     if (this.mode==="exercise") {
+      if (WorkoutMode.active) {
+        const card = WorkoutMode.cards()[WorkoutMode.index];
+        const done = cardDoneSets(card);
+        done[this.currentSet - 1] = true;
+        applyDoneSetsToCard(card, done);
+        saveWorkoutProgress();
+      }
       if (this.currentSet < this.sets) {
         TimerSounds.success();
         if (this.rest>0) this._endTimer = setTimeout(() => this.start(this.rest,{ ...opts, mode:"rest", set:this.currentSet }),350);
@@ -4894,6 +5023,11 @@ const GymTimer = {
     $("#timer-progress-fill") && ($("#timer-progress-fill").style.width="100%");
     $("#timer-coach") && ($("#timer-coach").textContent=this.coachMsg);
     clearTimeout(this._endTimer);
+
+    if (WorkoutMode.isDaily()) {
+      this._endTimer = setTimeout(() => this.stop(), 900);
+      return;
+    }
 
     // Descanso entre ejercicios antes de pasar al siguiente.
     if (this.restAfter > 0) {
@@ -5183,6 +5317,7 @@ const WorkoutMode = {
   _bound: false,
 
   cards() { return $$(".exercise-card", $("#sessionExercises")); },
+  isDaily() { return this.active && State.sessionDraft?.workoutStyle === "daily"; },
 
   enter(startIndex = 0) {
     const wrap = $("#sessionExercises");
@@ -5253,7 +5388,7 @@ const WorkoutMode = {
     const next = $("#btnWorkoutNext");
     if (next) {
       const isLast = this.index === cards.length - 1;
-      next.textContent = isLast ? "✓ Finalizar" : "Siguiente ›";
+      next.textContent = isLast ? "✓ Finalizar" : this.isDaily() ? "Terminar ejercicio y salir" : "Siguiente ›";
       next.classList.toggle("btn--finish", isLast);
     }
 
@@ -5263,13 +5398,31 @@ const WorkoutMode = {
     // Recordamos en qué ejercicio va por si se cierra la app.
     saveWorkoutProgress();
     // Cada tarjeta por tiempo inicia sus series y descansos al mostrarse.
-    $(".exercise-action--timer button", cards[this.index])?.click();
+    if (!this.isDaily()) $(".exercise-action--timer button", cards[this.index])?.click();
   },
 
   next() {
     if (!this.active) return;
+    if (this.isDaily()) {
+      const card = this.cards()[this.index];
+      const count = Math.max(1, Number($$("input", card)[0]?.value || 1));
+      applyDoneSetsToCard(card, Array(count).fill(true));
+    }
     if (this.index >= this.cards().length - 1) this.finish();
-    else this.go(this.index + 1);
+    else if (this.isDaily()) {
+      this.go(this.index + 1);
+      this.saveAndExit();
+      remindWorkout();
+    } else this.go(this.index + 1);
+  },
+
+  saveAndExit() {
+    const draft = collectSessionDraftFromUI();
+    draft.workoutStyle ||= "continuous";
+    setDraftSession(draft);
+    this.exit();
+    renderWorkoutResume();
+    toast("Rutina guardada", "Puedes continuar cuando estés listo.", "ok");
   },
 
   async finish() {
@@ -5280,14 +5433,16 @@ const WorkoutMode = {
       yesText: "Guardar sesión",
       noText: "Seguir editando"
     });
-    this.exit();
-    if (ok) saveSessionFromUI();
+    if (ok) {
+      this.exit();
+      saveSessionFromUI();
+    } else this.saveAndExit();
   },
 
   bindOnce() {
     if (this._bound) return;
     this._bound = true;
-    $("#btnExitWorkout")?.addEventListener("click", () => this.exit());
+    $("#btnExitWorkout")?.addEventListener("click", () => this.saveAndExit());
     $("#btnWorkoutPrev")?.addEventListener("click", () => this.go(this.index - 1));
     $("#btnWorkoutNext")?.addEventListener("click", () => this.next());
     $("#btnWorkoutCardio")?.addEventListener("click", () => openCardioModal());
@@ -5328,7 +5483,12 @@ function decorateExerciseCards() {
           el("span",{text:copyHint}),
           ...(copyAfter ? [el("span",{text:copyAfter})] : [])
         ]),
-        el("button",{class:"btn btn--primary",type:"button",text:`▶ Iniciar ejercicio`,onclick:()=>GymTimer.start(duration,{title:ex.name||card.dataset.exerciseName,rest,restAfter,sets:setsCount})})
+        el("button",{class:"btn btn--primary",type:"button",text:`▶ Iniciar ejercicio`,onclick:()=>{
+          const done = cardDoneSets(card);
+          const set = Array.from({ length: setsCount }, (_, i) => i).find(i => !done[i]);
+          if (set == null) return;
+          GymTimer.start(duration,{title:ex.name||card.dataset.exerciseName,rest,restAfter,sets:setsCount,set:set+1});
+        }})
       ]));
     }
     else {
@@ -5346,6 +5506,7 @@ function decorateExerciseCards() {
         saveWorkoutProgress();
         if(done===sets) {
           TimerSounds.success(); status.textContent=`¡Ejercicio completado! ${sets} de ${sets} series`;
+          if (WorkoutMode.isDaily()) return;
           if (restAfter>0) {
             // Descanso entre ejercicios: al terminar avanza solo al siguiente.
             GymTimer.start(restAfter,{mode:"restAfter",title:`${ex.name||card.dataset.exerciseName} · descanso`});
@@ -5384,12 +5545,14 @@ function decorateExerciseCards() {
 
 /* Series marcadas de una tarjeta, como lista de booleanos. */
 function cardDoneSets(card) {
-  return $$(".btn-set-badge", card).map(b => b.classList.contains("is-completed"));
+  const badges = $$(".btn-set-badge", card);
+  return badges.length ? badges.map(b => b.classList.contains("is-completed")) : (card.recordedSets || []).slice();
 }
 
 /* Repinta las series marcadas sin disparar temporizadores ni sonidos. */
 function applyDoneSetsToCard(card, done) {
   if (!Array.isArray(done) || !done.length) return;
+  card.recordedSets = done.slice();
   const badges = $$(".btn-set-badge", card);
   if (!badges.length) return;
   badges.forEach((badge, i) => {
@@ -5409,7 +5572,7 @@ function applyDoneSetsToCard(card, done) {
 
 /* Guarda el avance al momento (series marcadas, ejercicio actual). */
 function saveWorkoutProgress() {
-  if (State.prefs.autosave !== "on") return;
+  if (State.prefs.autosave !== "on" && !State.sessionDraft?.workoutStyle) return;
   setDraftSession(collectSessionDraftFromUI());
 }
 
@@ -5417,18 +5580,6 @@ function saveWorkoutProgress() {
 function draftHasProgress(draft) {
   if (!draft || !Array.isArray(draft.exercises) || !draft.exercises.length) return false;
   return draft.exercises.some(ex => (ex.doneSets || []).some(Boolean)) || Number(draft.workoutIndex || 0) > 0;
-}
-
-function draftDoneCount(draft) {
-  return (draft?.exercises || []).filter(ex => {
-    const done = ex.doneSets || [];
-    return done.length > 0 && done.every(Boolean);
-  }).length;
-}
-
-/* Total de series marcadas en el borrador. */
-function draftMarkedSets(draft) {
-  return (draft?.exercises || []).reduce((n, ex) => n + (ex.doneSets || []).filter(Boolean).length, 0);
 }
 
 const originalCollectSessionDraftFromUI = collectSessionDraftFromUI;
@@ -5441,11 +5592,17 @@ collectSessionDraftFromUI = function() {
     // Si los botones de serie aún no se han pintado, conservamos el avance ya
     // guardado en vez de sobrescribirlo con una lista vacía.
     if (!ex.doneSets.length) {
-      const prev = State.sessionDraft?.exercises?.[index];
+      const prev = State.sessionDraft?.routineId === draft.routineId ? State.sessionDraft.exercises?.[index] : null;
       if (prev?.doneSets?.length) ex.doneSets = prev.doneSets.slice();
     }
   });
   draft.workoutIndex = WorkoutMode.active ? WorkoutMode.index : (State.sessionDraft?.workoutIndex || 0);
+  if (State.sessionDraft?.routineId === draft.routineId) {
+    for (const field of ["workoutStyle", "reminderMinutes", "reminderAt"]) {
+      draft[field] = State.sessionDraft[field];
+    }
+    draft.routineName ||= State.sessionDraft.routineName;
+  }
   draft.updatedAt = Date.now();
   return draft;
 };
@@ -5576,6 +5733,10 @@ function openSessionDrawer(id) {
   }
 
   $("#btnEditSession") && ($("#btnEditSession").onclick = () => {
+    if (State.sessionDraft?.workoutStyle || draftHasProgress(State.sessionDraft)) {
+      toast("Hay una rutina en curso", "Guarda o continúa tu rutina actual.", "warn");
+      return;
+    }
     State.cardioDraft = s.cardio || null;
     setDraftSession({
       routineId: s.routineId,
@@ -5586,7 +5747,7 @@ function openSessionDrawer(id) {
       rpe: s.rpe,
       notes: s.notes,
       cardio: s.cardio || null,
-      exercises: (s.exercises || []).map(ex => ({ ...ex }))
+      exercises: (s.exercises || []).map(ex => ({ ...ex, doneSets: [] }))
     });
     closeDrawer("#drawerSession");
     location.hash = "#new-session";
@@ -5832,11 +5993,15 @@ function bindAuthEvents() {
       resetGoogleBtn();
       toast("Bienvenido 👋", user.displayName || user.email || "", "ok");
       maybeOfferResumeSession();
+      GymReminders.request("launch").then(openWorkoutNotification).catch(console.warn);
     } else {
       // Sin usuario → mostrar login
       Auth.applyUser(null);
       Auth.updateAvatar(null);
       firebaseBootstrapped = false;
+      GymReminders.cancel();
+      State.sessionDraft = null;
+      resetSessionUI();
       Auth.showLogin();
     }
   });
@@ -5850,57 +6015,21 @@ function bindAuthEvents() {
   });
 }
 
-/* Si la app se cerró con un entrenamiento a medias, preguntamos si continuar en
-   vez de recuperar el borrador en silencio (antes había que adivinar que seguía ahí). */
-let resumeOffered = false;
-async function maybeOfferResumeSession() {
-  if (resumeOffered) return;
+function maybeOfferResumeSession() {
   const draft = State.sessionDraft;
-  if (State.prefs.autosave !== "on" || !draftHasProgress(draft)) return;
-  resumeOffered = true;
-
-  const total = draft.exercises.length;
-  const at = clamp(Number(draft.workoutIndex || 0), 0, Math.max(0, total - 1)) + 1;
-  const done = draftDoneCount(draft);
-  const marked = draftMarkedSets(draft);
-  const name = draft.routineName || "Entrenamiento";
-
-  const partes = [`ibas en el ejercicio ${at} de ${total}`];
-  if (done) partes.push(`${done} ejercicio${done===1?"":"s"} completo${done===1?"":"s"}`);
-  else if (marked) partes.push(`${marked} serie${marked===1?"":"s"} marcada${marked===1?"":"s"}`);
-  if (draft.updatedAt) partes.push(timeAgoLabel(draft.updatedAt));
-
-  const ok = await confirmDialog({
-    title: "Tenías un entrenamiento sin terminar",
-    text: `${name}: ${partes.join(" · ")}. ¿Quieres continuarlo?`,
-    yesText: "Continuar",
-    noText: "Descartar"
-  });
-
-  if (!ok) {
-    clearDraftSession();
-    resetSessionUI();
-    toast("Entrenamiento descartado", "Empiezas de cero.", "ok");
-    return;
-  }
-
-  const index = Number(draft.workoutIndex || 0);
-  location.hash = "#new-session";
-  // Damos tiempo a que la vista se pinte y el borrador se aplique a las tarjetas.
-  setTimeout(() => WorkoutMode.enter(index), 400);
+  if (draft?.reminderAt) GymReminders.watch(draft.reminderAt, workoutReminderDue);
+  if (draft?.workoutStyle || draftHasProgress(draft)) location.hash = "#new-session";
 }
 
-/* "hace 5 min" / "hace 2 h" / "ayer" */
-function timeAgoLabel(ts) {
-  const diff = Math.max(0, Date.now() - Number(ts || 0));
-  const min = Math.round(diff / 60000);
-  if (min < 1) return "hace un momento";
-  if (min < 60) return `hace ${min} min`;
-  const h = Math.round(min / 60);
-  if (h < 24) return `hace ${h} h`;
-  const d = Math.round(h / 24);
-  return d === 1 ? "ayer" : `hace ${d} días`;
+function openWorkoutNotification(at) {
+  if (!at || Number(at) !== State.sessionDraft?.reminderAt || !window.FirebaseSync?.currentUser) return;
+  resumeWorkout();
 }
+
+window.addEventListener("gymos:workout-notification", event => openWorkoutNotification(event.detail));
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) renderWorkoutResume();
+});
 
 /* --------------------------- GLOBAL NAV / INIT --------------------------- */
 function bindNavOnce() {
