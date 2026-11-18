@@ -2417,8 +2417,9 @@ const imageGenerations = new Map();
 let unsubscribeExerciseImages = null;
 
 function exerciseImageUrl(ex) {
-  const shared = sharedExerciseImages.get(ExerciseIdentity.normalizeExerciseName(ex?.name))?.imageUrl;
-  return shared || cleanMediaUrl(ex?.imageUrl);
+  const name = ExerciseIdentity.normalizeExerciseName(ex?.name);
+  return sharedExerciseImages.get(`image:${name}`)?.imageUrl ||
+    cleanMediaUrl(ex?.imageUrl) || sharedExerciseImages.get(`gif:${name}`)?.imageUrl;
 }
 
 function refreshExerciseImages() {
@@ -2440,24 +2441,24 @@ function subscribeExerciseImages(user) {
     sharedExerciseImages.clear();
     snapshot.forEach(doc => {
       const image = doc.data();
-      sharedExerciseImages.set(image.normalizedName, image);
+      sharedExerciseImages.set(`${image.format || "image"}:${image.normalizedName}`, image);
     });
     refreshExerciseImages();
   }, () => toast("Biblioteca de imágenes", "No pudimos actualizar las imágenes compartidas. Revisa tu conexión.", "warn"));
 }
 
-async function generateExerciseImage(ex) {
+async function generateExerciseImage(ex, format = "image") {
   const sync = window.FirebaseSync;
   if (!sync?.currentUser || !sync.app?.functions) throw new Error("Inicia sesión para crear imágenes.");
-  const key = ExerciseIdentity.normalizeExerciseName(ex.name);
+  const key = `${format}:${ExerciseIdentity.normalizeExerciseName(ex.name)}`;
   if (sharedExerciseImages.has(key)) return { ...sharedExerciseImages.get(key), reused: true };
   if (imageGenerations.has(key)) return imageGenerations.get(key);
   const uid = sync.currentUser.uid;
   const pending = (async () => {
     const call = sync.app.functions("us-central1").httpsCallable("generateExerciseImage", { timeout: 100000 });
-    const { data } = await call({ name: String(ex.name || "").trim(), notes: String(ex.notes || "").slice(0, 800) });
+    const { data } = await call({ name: String(ex.name || "").trim(), notes: String(ex.notes || "").slice(0, 800), format });
     if (sync.currentUser?.uid === uid) {
-      sharedExerciseImages.set(data.normalizedName, data);
+      sharedExerciseImages.set(`${data.format || "image"}:${data.normalizedName}`, data);
       refreshExerciseImages();
     }
     return data;
@@ -2469,7 +2470,11 @@ async function generateExerciseImage(ex) {
 
 function exerciseImageControls(getExercise) {
   const status = el("span", { class:"muted exercise-image-status", role:"status" });
-  const button = el("button", { class:"btn btn--ghost btn--sm", type:"button", text:"Crear imagen IA" });
+  const format = el("select", { class:"input input--sm", "aria-label":"Formato de la guía IA" }, [
+    el("option", { value:"image", text:"Imagen fija" }),
+    el("option", { value:"gif", text:"GIF animado" })
+  ]);
+  const button = el("button", { class:"btn btn--ghost btn--sm", type:"button", text:"Crear guía IA" });
   button.onclick = async () => {
     const ex = getExercise();
     if (!String(ex.name || "").trim()) {
@@ -2477,19 +2482,25 @@ function exerciseImageControls(getExercise) {
       return;
     }
     button.disabled = true;
-    button.textContent = "Creando imagen…";
+    format.disabled = true;
+    const selectedFormat = format.value;
+    const label = selectedFormat === "gif" ? "GIF" : "Imagen";
+    button.textContent = "Creando guía…";
     status.textContent = "Preparando la ilustración. Puede tardar alrededor de un minuto.";
     try {
-      const image = await generateExerciseImage(ex);
-      status.textContent = image.reused ? "Imagen reutilizada de la biblioteca." : "Imagen creada y vinculada a los ejercicios con este nombre.";
+      const image = await generateExerciseImage(ex, selectedFormat);
+      status.textContent = image.reused ? `${label} disponible en la biblioteca.` : `${label} disponible en los ejercicios con este nombre.`;
     } catch (error) {
-      status.textContent = error.message || "No pudimos crear la imagen. Intenta de nuevo.";
+      status.textContent = error.message || "No pudimos crear la guía. Intenta de nuevo.";
     } finally {
       button.disabled = false;
-      button.textContent = "Crear imagen IA";
+      format.disabled = false;
+      button.textContent = "Crear guía IA";
     }
   };
-  return el("div", { class:"exercise-image-controls" }, [button, status]);
+  return el("div", { class:"exercise-image-controls" }, [
+    el("div", { class:"exercise-media" }, [format, button]), status
+  ]);
 }
 
 async function generateRoutineImages(routine, button, status) {
@@ -2522,18 +2533,35 @@ async function generateRoutineImages(routine, button, status) {
 }
 
 function buildExerciseMedia(ex, options={}) {
-  const imageUrl = exerciseImageUrl(ex);
+  const name = ExerciseIdentity.normalizeExerciseName(ex?.name);
+  const gifUrl = sharedExerciseImages.get(`gif:${name}`)?.imageUrl;
+  const imageUrl = sharedExerciseImages.get(`image:${name}`)?.imageUrl || cleanMediaUrl(ex?.imageUrl);
   const videoUrl = cleanMediaUrl(ex?.videoUrl);
   const compact = !!options.compact;
   const wrap = el("div", { class: compact ? "exercise-media exercise-media--compact" : "exercise-media" });
   wrap.dataset.exerciseMedia = JSON.stringify({ name: ex?.name || "", imageUrl: ex?.imageUrl || "", videoUrl: ex?.videoUrl || "" });
   let hasMedia = false;
 
-  if (imageUrl && isHttpUrl(imageUrl)) {
-    const link = el("a", { class:"exercise-media__image", href:imageUrl, target:"_blank", rel:"noopener noreferrer", title:"Abrir imagen" }, [
-      el("img", { src:imageUrl, alt:`Imagen guía de ${ex?.name || "ejercicio"}`, loading:"lazy" })
-    ]);
+  if (isHttpUrl(imageUrl) || isHttpUrl(gifUrl)) {
+    const img = el("img", { alt:`Guía de ${ex?.name || "ejercicio"}`, loading:"lazy" });
+    const link = el("a", { class:"exercise-media__image", target:"_blank", rel:"noopener noreferrer" }, [img]);
+    const toggle = el("button", { class:"media-chip", type:"button" });
+    let showGif = !!gifUrl && !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const renderGuide = () => {
+      const url = showGif ? gifUrl : imageUrl;
+      link.hidden = !isHttpUrl(url);
+      if (link.hidden) img.removeAttribute("src");
+      else img.src = link.href = url;
+      link.title = showGif ? "Abrir GIF" : "Abrir imagen";
+      toggle.textContent = showGif ? (imageUrl ? "Ver imagen fija" : "Ocultar GIF") : "Ver GIF";
+    };
+    toggle.onclick = () => {
+      showGif = !showGif;
+      renderGuide();
+    };
+    renderGuide();
     wrap.appendChild(link);
+    if (gifUrl) wrap.appendChild(toggle);
     hasMedia = true;
   }
 

@@ -132,20 +132,21 @@ node --check app.js
 ## Ilustraciones compartidas de ejercicios
 
 **Crear imágenes IA** está disponible en el editor y en el detalle de la rutina.
-Cada ejercicio también tiene su propio botón. Las ilustraciones usan un estilo
-plano con dos posturas y flechas de movimiento.
+Ese botón crea imágenes fijas para la rutina completa. En cada ejercicio se puede
+elegir **Imagen fija** o **GIF animado** y pulsar **Crear guía IA**. La imagen fija
+muestra dos posturas con flechas. El GIF repite cuatro posturas de ida y vuelta.
 
 La biblioteca en `exerciseIllustrations` se comparte entre las dos cuentas
 autorizadas. La identidad normaliza tildes, mayúsculas, puntuación y espacios del
 nombre. Los nombres con variantes de equipo o postura siguen siendo distintos.
 Las rutinas antiguas, el entrenamiento, el historial y los selectores consultan
-esa biblioteca. Las ilustraciones compartidas tienen prioridad visual y los
-enlaces guardados sirven de respaldo cuando falta una ilustración compartida.
+esa biblioteca. Cuando hay un GIF y una imagen fija, la vista permite alternar
+entre ambos. Los enlaces guardados sirven de respaldo para la imagen fija.
 
 La función `generateExerciseImage` usa la misma clave de Gemini y guarda los
 archivos en `gymos/shared-exercise-images/` de Firebase Storage. Una transacción
-reserva cada generación y evita llamadas simultáneas para el mismo nombre.
-El límite es de 20 intentos nuevos por cuenta y día. La reutilización no consume
+reserva cada generación y evita duplicados para el mismo nombre y formato.
+El límite compartido es de 20 intentos nuevos por cuenta y día. La reutilización no consume
 intentos ni llama al modelo. Un error conserva las imágenes ya completadas y
 permite continuar con las pendientes.
 

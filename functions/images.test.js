@@ -2,6 +2,7 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const vm = require("node:vm");
+const sharp = require("sharp");
 const { normalizeExerciseName } = require("./exercise-identity");
 
 function setup() {
@@ -47,7 +48,8 @@ function setup() {
     "firebase-admin/storage": { getStorage: () => ({ bucket: () => bucket }) },
     "firebase-functions/v2/https": { HttpsError },
     "firebase-functions/logger": { warn() {} },
-    "./exercise-identity": require("./exercise-identity")
+    "./exercise-identity": require("./exercise-identity"),
+    sharp
   };
   const sandbox = {
     module: { exports: {} }, require: name => dependencies[name], Buffer, Date, Intl, AbortSignal,
@@ -55,7 +57,7 @@ function setup() {
       calls++;
       if (state.failProvider) return { ok: false, status: 503 };
       return { ok: true, json: async () => ({ candidates: [{
-        finishReason: "STOP", content: { parts: [{ inlineData: { mimeType: "image/png", data: "aW1hZ2U=" } }] }
+        finishReason: "STOP", content: { parts: [{ inlineData: { mimeType: "image/png", data: state.sprite || "aW1hZ2U=" } }] }
       }] }) };
     }
   };
@@ -91,6 +93,39 @@ test("dos solicitudes concurrentes solo generan una imagen", async () => {
   assert.equal(results.filter(result => result.status === "fulfilled").length, 1);
   assert.equal(results.find(result => result.status === "rejected").reason.code, "aborted");
   assert.equal(env.calls(), 1);
+});
+
+test("el GIF conserva la imagen fija y reproduce las cuatro posturas de ida y vuelta", async () => {
+  const env = setup();
+  const size = 128;
+  const colors = [10, 70, 130, 220];
+  const quadrants = colors.map((value, i) => ({
+    input: { create: { width: size, height: size, channels: 3, background: { r: value, g: 0, b: 0 } } },
+    left: (i % 2) * size,
+    top: Math.floor(i / 2) * size
+  }));
+  const sprite = await sharp({ create: { width: size * 2, height: size * 2, channels: 3, background: "#fff" } })
+    .composite(quadrants).png().toBuffer();
+  env.state.sprite = sprite.toString("base64");
+  const still = await env.generate(request(), "key");
+  const animated = request();
+  animated.data.format = "gif";
+  const gif = await env.generate(animated, "key");
+  assert.notEqual(gif.imageUrl, still.imageUrl);
+  assert.equal(gif.format, "gif");
+  assert.equal((await env.generate(animated, "key")).reused, true);
+  assert.equal((await env.generate(request(), "key")).imageUrl, still.imageUrl);
+  assert.equal(env.calls(), 2);
+
+  const decoded = sharp(env.files.get(gif.storagePath), { animated: true });
+  const { format, pages, loop, delay } = await decoded.metadata();
+  assert.equal(format, "gif");
+  assert.equal(pages, 6);
+  assert.equal(loop, 0);
+  assert.deepEqual(delay, [550, 190, 190, 550, 190, 190]);
+  const { data, info } = await decoded.raw().toBuffer({ resolveWithObject: true });
+  const frameStride = info.width * (info.height / pages) * info.channels;
+  assert.deepEqual(Array.from({ length: pages }, (_, i) => data[i * frameStride]), [10, 70, 130, 220, 130, 70]);
 });
 
 test("un fallo permite reintentar y consume intentos sin publicar imágenes incompletas", async () => {
