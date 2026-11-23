@@ -13,11 +13,13 @@
     recuperacion: "Relajación y recuperación",
     activa: "Flexibilidad activa",
     articular: "Movilidad articular",
-    retorno: "Retorno progresivo al ejercicio"
+    retorno: "Retorno progresivo al ejercicio",
+    fuerza: "Fuerza", cardio: "Cardio suave", equilibrio: "Equilibrio y coordinación"
   };
   const exerciseCategories = {
     piernas_caderas: "Piernas y caderas", danza: "Ballet y danza",
-    espalda_postura: "Espalda y postura", recuperacion: "Relajación y recuperación"
+    espalda_postura: "Espalda y postura", recuperacion: "Relajación y recuperación",
+    fuerza: "Fuerza", cardio: "Cardio suave", equilibrio: "Equilibrio y coordinación"
   };
   const positions = ["sentado", "acostado", "cuatro_apoyos", "de_pie"];
   const surfaces = ["colchoneta", "piso", "cama_firme"];
@@ -402,6 +404,47 @@
     instructions: ["Sentado estable, alterna pequeños círculos de hombros, muñecas y tobillos.", "Dedica unas respiraciones a cada zona y mantén todos los movimientos lentos."],
     alternatives: ["hombros_sentado", "tobillos_supino"]
   });
+
+  const trainingExercises = [
+    ["sentadilla_mancuerna", "Sentadilla con mancuerna al pecho", "fuerza", "inferior", ["mancuernas"], "de_pie", "cuádriceps y glúteos", "cadera y rodillas", "Sostén una mancuerna cerca del pecho. Flexiona caderas y rodillas hasta una profundidad cómoda y empuja el suelo al subir.", ["knee-load", "hip-deep"]],
+    ["bisagra_mancuernas", "Peso muerto rumano con mancuernas", "fuerza", "inferior", ["mancuernas"], "de_pie", "glúteos e isquiotibiales", "cadera", "Con rodillas suaves, lleva la cadera hacia atrás y baja las mancuernas cerca de las piernas. Vuelve a erguirte sin arquear la espalda."],
+    ["press_suelo_mancuernas", "Press de pecho con mancuernas en el suelo", "fuerza", "superior", ["mancuernas"], "acostado", "pectoral y tríceps", "hombros y codos", "Boca arriba, baja los brazos con control hasta que los tríceps toquen el suelo suavemente. Empuja hacia arriba con las muñecas alineadas."],
+    ["remo_mancuernas", "Remo inclinado con mancuernas", "fuerza", "superior", ["mancuernas"], "de_pie", "dorsales y espalda alta", "hombros y codos", "Inclínate desde la cadera con rodillas suaves. Lleva los codos hacia las costillas y baja las mancuernas despacio sin encorvarte."],
+    ["curl_mancuernas", "Curl de bíceps con mancuernas", "fuerza", "superior", ["mancuernas"], "de_pie", "bíceps", "codos", "Con los codos cerca del cuerpo, flexiona y extiende los brazos despacio. Mantén el torso quieto."],
+    ["press_hombro_mancuernas", "Press de hombros con mancuernas", "fuerza", "superior", ["mancuernas"], "de_pie", "deltoides y tríceps", "hombros y codos", "Desde los hombros, empuja las mancuernas hacia arriba dentro de tu rango cómodo. Baja despacio y evita arquear la zona lumbar."],
+    ["talones_mancuernas", "Elevación de talones con mancuernas", "fuerza", "inferior", ["mancuernas"], "de_pie", "pantorrillas", "tobillos", "Con las pesas a los lados, eleva los talones y baja de forma controlada. Hazlo sin carga si pierdes estabilidad.", ["balance"]],
+    ["marcha_mancuernas", "Marcha en el sitio con mancuernas", "fuerza", "tronco", ["mancuernas"], "de_pie", "abdomen y musculatura postural", "cadera y tobillos", "Sujeta las pesas a los lados y eleva un pie a la vez en pasos cortos. Mantén el tronco erguido y las pesas quietas.", ["balance"]],
+    ["sentadilla_banda", "Sentadilla con banda bajo los pies", "fuerza", "inferior", ["banda elástica"], "de_pie", "cuádriceps y glúteos", "cadera y rodillas", "Pisa el centro de una banda larga en buen estado y sujeta los extremos. Flexiona las piernas con control y vuelve a la posición inicial.", ["knee-load"]],
+    ["remo_banda", "Remo de pie con banda bajo los pies", "fuerza", "superior", ["banda elástica"], "de_pie", "espalda alta y bíceps", "hombros y codos", "Pisa firmemente el centro de una banda larga. Inclina el torso desde la cadera y lleva los codos hacia atrás, sin soltar la tensión de golpe."],
+    ["curl_banda", "Curl de bíceps con banda", "fuerza", "superior", ["banda elástica"], "de_pie", "bíceps", "codos", "Pisa el centro de la banda y toma sus extremos. Flexiona los codos manteniéndolos cerca de las costillas y baja despacio."],
+    ["apertura_banda", "Apertura de brazos con banda", "fuerza", "superior", ["banda elástica"], "de_pie", "espalda alta y deltoides posteriores", "hombros", "Sujeta una banda ligera delante del pecho. Separa las manos sin encoger los hombros y vuelve despacio."],
+    ["bisagra_kettlebell", "Peso muerto con kettlebell", "fuerza", "inferior", ["kettlebell"], "de_pie", "glúteos e isquiotibiales", "cadera y rodillas", "Con la pesa entre los pies, lleva la cadera hacia atrás para tomar el asa. Ponte de pie con la pesa cerca del cuerpo y vuelve a apoyarla suavemente."],
+    ["sentadilla_kettlebell", "Sentadilla con kettlebell al pecho", "fuerza", "inferior", ["kettlebell"], "de_pie", "cuádriceps y glúteos", "cadera y rodillas", "Sostén la pesa cerca del pecho. Baja a una profundidad que controles y empuja el suelo al regresar.", ["knee-load", "hip-deep"]],
+    ["marcha_kettlebell", "Marcha con kettlebell a dos manos", "fuerza", "tronco", ["kettlebell"], "de_pie", "abdomen y musculatura postural", "cadera", "Sostén la pesa delante del pecho. Alterna pasos pequeños sin inclinar el tronco ni contener la respiración.", ["balance"]],
+    ["press_banco", "Press de pecho con mancuernas en banco", "fuerza", "superior", ["mancuernas", "banco"], "acostado", "pectoral y tríceps", "hombros y codos", "Con los pies firmes y la espalda apoyada, baja las mancuernas a una altura cómoda y empújalas hacia arriba sin rebotar.", [], ["piso"]],
+    ["sentadilla_corporal", "Sentadilla con peso corporal", "fuerza", "inferior", [], "de_pie", "cuádriceps y glúteos", "cadera y rodillas", "Lleva la cadera atrás y dobla las rodillas hasta una profundidad cómoda. Vuelve a subir manteniendo los pies apoyados.", ["knee-load", "hip-deep"]],
+    ["flexion_pared", "Flexiones contra la pared", "fuerza", "superior", ["pared"], "de_pie", "pectoral y tríceps", "hombros y codos", "Apoya las manos en una pared estable. Acerca el pecho flexionando los codos y empuja para regresar.", ["wrist-load"]],
+    ["puente_gluteos", "Puente de glúteos", "fuerza", "inferior", [], "acostado", "glúteos e isquiotibiales", "cadera", "Boca arriba con las rodillas flexionadas, eleva la pelvis sin arquear la espalda y baja despacio."],
+    ["dead_bug_talones", "Toques de talón boca arriba", "fuerza", "tronco", [], "acostado", "abdominales", "cadera", "Desde boca arriba con las piernas flexionadas y elevadas, toca el suelo con un talón y vuelve. Alterna sin despegar la zona lumbar."],
+    ["levantarse_silla", "Sentarse y levantarse de una silla", "fuerza", "inferior", ["silla"], "de_pie", "cuádriceps y glúteos", "cadera y rodillas", "Usa una silla firme que no se deslice. Inclina un poco el tronco, levántate y vuelve a sentarte con control.", ["knee-load"]],
+    ["pasos_laterales", "Pasos laterales sin salto", "cardio", "inferior", [], "de_pie", "piernas y glúteos", "cadera, rodillas y tobillos", "Da un paso corto al lado y acerca el otro pie. Alterna lados a un ritmo que te permita hablar."],
+    ["marcha_brazos", "Marcha con balanceo de brazos", "cardio", "inferior", [], "de_pie", "piernas y hombros", "cadera y hombros", "Marcha sin saltar y alterna el movimiento de los brazos. Usa pasos más cortos si necesitas bajar el ritmo."],
+    ["pasos_adelante_atras", "Pasos adelante y atrás sin salto", "cardio", "inferior", [], "de_pie", "piernas y pantorrillas", "cadera y tobillos", "Da dos pasos cortos hacia delante y vuelve por el mismo camino. Mantén el suelo despejado y alterna el pie que inicia.", ["balance"]],
+    ["equilibrio_tandem", "Equilibrio en posición de tándem", "equilibrio", "inferior", ["pared"], "de_pie", "pantorrillas y musculatura postural", "tobillos", "Coloca un pie delante del otro junto a una pared. Toca la pared cuando lo necesites y cambia el pie de adelante.", ["balance"]],
+    ["transferencia_peso", "Traslados de peso de lado a lado", "equilibrio", "inferior", [], "de_pie", "caderas y musculatura postural", "cadera y tobillos", "Con los pies separados, desplaza el peso lentamente de una pierna a la otra sin levantar los pies.", ["balance"]],
+    ["equilibrio_silla", "Equilibrio con apoyo en silla", "equilibrio", "inferior", ["silla"], "de_pie", "pantorrillas y glúteos", "cadera y tobillos", "Sujeta una silla firme y despega un pie unos centímetros. Apóyalo despacio y cambia de lado.", ["balance"]]
+  ];
+  for (const [id, name, category, region, equipment, position, muscle, joint, instruction, tags, supportedSurfaces] of trainingExercises) {
+    add({
+      id, name, category, position, equipment, surfaces: supportedSurfaces,
+      muscles: [muscle], joints: [joint], bodyRegions: [region], riskTags: tags,
+      modality: category, goals: [category], instructions: [instruction],
+      recommendation: category === "fuerza" ? { repetitions: [6, 10] } : undefined,
+      precautions: category === "fuerza"
+        ? ["Empieza con una carga ligera que puedas controlar. Respira con normalidad y detente si aparece dolor o mareo."]
+        : undefined
+    });
+  }
 
   function normalizeName(value) {
     return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();

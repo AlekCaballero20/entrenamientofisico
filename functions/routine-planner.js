@@ -6,6 +6,19 @@ function intersect(current, incoming) {
   return current.filter(item => incoming.includes(item));
 }
 
+const trainingCategories = ["fuerza", "cardio", "equilibrio"];
+const equipmentAliases = {
+  mancuernas: /\b(?:mancuernas?|dumbbells?|kit de pesas|pesas ajustables)\b/,
+  "banda elástica": /\b(?:bandas?(?: elasticas?| de resistencia)?|ligas? elasticas?)\b/,
+  kettlebell: /\b(?:kettlebells?|pesas? rusas?)\b/,
+  banco: /\bbanco\b/, silla: /\bsilla\b/, pared: /\bpared\b/
+};
+
+function normalizeEquipment(value) {
+  const text = normalizeName(value);
+  return Object.keys(equipmentAliases).find(item => equipmentAliases[item].test(text)) || text;
+}
+
 function inferCategory(text) {
   if (/ballet|bailarina|danza/.test(text)) return "danza";
   if (/noche|nocturn|dormir/.test(text)) return "nocturna";
@@ -14,6 +27,9 @@ function inferCategory(text) {
   if (/flexibilidad activa/.test(text)) return "activa";
   if (/postura/.test(text)) return "postura";
   if (/articular/.test(text)) return "articular";
+  if (/cardio|aerobic|resistencia cardiovascular/.test(text)) return "cardio";
+  if (/equilibrio|coordinacion/.test(text)) return "equilibrio";
+  if (/fuerza|musculacion|hipertrofia|fortalecer|pesas|mancuerna|kettlebell|banda elastica|peso corporal/.test(text)) return "fuerza";
   if (/retom|retorno|meses sin/.test(text)) return "retorno";
   return "flexibilidad";
 }
@@ -83,12 +99,17 @@ function resolveIntent(prompt, options = {}, interpretation = {}) {
   const week = options.week || 1;
   const phaseLevel = week <= 2 ? 1 : week <= 4 ? 2 : 3;
   const maxLevel = options.progressComfortable ? Math.min(options.maxLevel || 1, phaseLevel) : 1;
+  const requiredEquipment = (interpretation.requiredEquipment || [])
+    .filter(value => typeof value === "string").map(normalizeEquipment);
+  const excludedEquipment = (interpretation.excludedEquipment || [])
+    .filter(value => typeof value === "string").map(normalizeEquipment);
+  const availableEquipment = Object.keys(equipmentAliases).filter(item => equipmentAliases[item].test(text));
   return {
     category: options.category || inferCategory(text),
+    availableEquipment: [...new Set([...availableEquipment, ...requiredEquipment])],
     requiredPositions, requiredSurfaces, excludedRiskTags: [...excludedRiskTags],
     noEquipment: !!options.noEquipment || /sin equipo|sin material|sin elementos/.test(text),
-    excludedEquipment: (interpretation.excludedEquipment || []).filter(value => typeof value === "string"),
-    requiredEquipment: (interpretation.requiredEquipment || []).filter(value => typeof value === "string"),
+    excludedEquipment, requiredEquipment,
     fullBody: /cuerpo completo|todo el cuerpo|general/.test(text) || !!interpretation.fullBody ||
       !/(?:solo|unicamente|para|de) (?:las |los )?(?:piernas|caderas|brazos|hombros|espalda|tobillos|munecas)(?: |$)/.test(text),
     preferences: [...preferences, ...(interpretation.preferences || []).filter(value => typeof value === "string").slice(0, 5)],
@@ -99,6 +120,9 @@ function resolveIntent(prompt, options = {}, interpretation = {}) {
 function compatibleExercises(intent) {
   if (intent.incompatible) return [];
   return Object.values(records).filter(ex =>
+    (!trainingCategories.includes(ex.category) || ex.category === intent.category) &&
+    (!trainingCategories.includes(intent.category) || ex.equipment.every(item =>
+      ["pared", "silla"].includes(item) || intent.availableEquipment.includes(item))) &&
     ex.difficulty <= intent.maxLevel &&
     ex.progression.minimumWeek <= intent.week &&
     (!intent.requiredPositions.length || intent.requiredPositions.includes(ex.position)) &&
@@ -111,6 +135,10 @@ function compatibleExercises(intent) {
 
 function scoreExercise(ex, intent) {
   let score = ex.goals.includes(intent.category) ? 2 : 0;
+  if (trainingCategories.includes(intent.category) && ex.category === intent.category) {
+    score += 10;
+    if (ex.equipment.some(item => intent.availableEquipment.includes(item))) score += 5;
+  }
   if (intent.category === "danza" && ex.category === "danza") score += 8;
   if (intent.category === "postura" && ex.category === "espalda_postura") score += 8;
   if (["nocturna", "recuperacion"].includes(intent.category) && ex.modality === "estatico") score += 4;
@@ -125,9 +153,15 @@ function scoreExercise(ex, intent) {
   return score;
 }
 
-function selectExercises(candidates, intent, proposedIds, minutes) {
+function selectExercises(candidates, intent, proposedIds, minutes, usedIds = new Set()) {
   if (intent.incompatible) throw new Error("Las restricciones de posición o superficie se contradicen. Revisa el texto y los filtros obligatorios para elegir una combinación compatible.");
-  const ranked = candidates.slice().sort((a, b) => scoreExercise(b, intent) - scoreExercise(a, intent) || a.id.localeCompare(b.id));
+  const proposals = new Set(Array.isArray(proposedIds) ? proposedIds : []);
+  const training = trainingCategories.includes(intent.category);
+  const rank = ex => scoreExercise(ex, intent) + (training ? Number(proposals.has(ex.id)) - 2 * Number(usedIds.has(ex.id)) : 0);
+  const ranked = candidates.slice().sort((a, b) => rank(b) - rank(a) || a.id.localeCompare(b.id));
+  if (training && !ranked.some(ex => ex.category === intent.category)) {
+    throw new Error("El catálogo no tiene ejercicios de " + categories[intent.category].toLowerCase() + " compatibles con estos filtros.");
+  }
   const daily = minutes === null;
   const count = Math.min(daily ? 4 : minutes / 2.5, candidates.length);
   if (count < (daily ? 1 : Math.ceil(minutes * 60 / 240))) {
@@ -145,8 +179,9 @@ function selectExercises(candidates, intent, proposedIds, minutes) {
   const append = ex => {
     if (ex && !selected.some(item => item.id === ex.id)) selected.push(ex);
   };
-  const opener = ranked.find(ex => ex.phase === "inicio");
-  const closer = ranked.find(ex => ex.phase === "cierre");
+  const opener = training && daily ? null : ranked.find(ex => ex.phase === "inicio");
+  const closer = training && ranked.filter(ex => ex.category === intent.category).length >= count - 1
+    ? null : ranked.find(ex => ex.phase === "cierre");
   append(opener);
   if (intent.fullBody) {
     for (const region of ["inferior", "tronco", "superior"]) {
@@ -156,8 +191,7 @@ function selectExercises(candidates, intent, proposedIds, minutes) {
       }
     }
   }
-  const proposals = Array.isArray(proposedIds) ? proposedIds : [];
-  for (const id of proposals) {
+  for (const id of training ? [] : proposals) {
     if (selected.length >= count - (closer ? 1 : 0)) break;
     append(ranked.find(ex => ex.id === id && ex.id !== closer?.id));
   }
@@ -191,6 +225,12 @@ function buildPlannedRoutine(ids, minutes, intent) {
     const holdCap = !intent.progressComfortable || intent.week <= 2 ? 20 : intent.week <= 4 ? 25 : 30;
     const duration = Math.min(holdCap, record.recommendation.holdSeconds[1]);
     const exercise = { ...toExercise(record), duration, progressionWeek: intent.week };
+    if (record.modality === "fuerza") {
+      return {
+        ...exercise, duration: 0, reps: String(record.recommendation.repetitions[0]),
+        sets: 2, rest: 45, restAfter: 0
+      };
+    }
     if (daily) return { ...exercise, sets: 2, rest: 10, restAfter: 0 };
     const sets = Math.min(8, Math.max(4, Math.floor((blockSeconds + 10) / (duration + 10) / 2) * 2));
     const rest = isLast ? Math.floor((blockSeconds - sets * duration) / (sets - 1)) : 10;
@@ -199,7 +239,8 @@ function buildPlannedRoutine(ids, minutes, intent) {
       restAfter: isLast ? 0 : blockSeconds - sets * duration - (sets - 1) * rest
     };
   });
-  if (!daily) {
+  const usesRepetitions = exercises.some(ex => ex.reps);
+  if (!daily && !usesRepetitions) {
     const scheduled = exercises.reduce((total, ex) => total + ex.sets * ex.duration + (ex.sets - 1) * ex.rest + ex.restAfter, 0);
     exercises[exercises.length - 2].restAfter += minutes * 60 - scheduled;
   }
@@ -212,8 +253,10 @@ function buildPlannedRoutine(ids, minutes, intent) {
     generationNotes: [
       "Semana " + intent.week + " · nivel máximo autorizado: " + intent.maxLevel + ". La progresión requiere confirmar comodidad.",
       daily ? "Haz un ejercicio completo y retoma el siguiente cuando tengas otro momento libre."
-        : "Los tiempos incluyen series y descansos programados. Preparación, avisos y pausas añaden tiempo.",
-      "La amplitud es individual. Mantén o reduce el nivel si pierde comodidad; no se presupone alcanzar un split."
+        : usesRepetitions ? "La duración es aproximada. Marca cada serie al terminar las repeticiones."
+          : "Los tiempos incluyen series y descansos programados. Preparación, avisos y pausas añaden tiempo.",
+      usesRepetitions ? "Usa una carga ligera que puedas controlar y regístrala al entrenar."
+        : "La amplitud es individual. Mantén o reduce el nivel si pierde comodidad; no se presupone alcanzar un split."
     ]
   };
 }

@@ -118,8 +118,9 @@ test("las semanas no aumentan dificultad sin confirmación de comodidad", () => 
   assert.ok(later.exercises.every(ex => ex.duration <= 30));
 });
 
-test("todas las categorías y duraciones mantienen tiempos no negativos y alternancia simétrica", () => {
-  for (const category of Object.keys(library.categories)) {
+test("las categorías por tiempo mantienen tiempos no negativos y alternancia simétrica", () => {
+  const categories = Object.keys(library.categories).filter(category => !["fuerza", "cardio", "equilibrio"].includes(category));
+  for (const category of categories) {
     for (const minutes of planner.supportedMinutes) {
       for (const week of [1, 3, 5]) {
         const routine = plan("Cuerpo completo en el suelo", minutes,
@@ -129,6 +130,34 @@ test("todas las categorías y duraciones mantienen tiempos no negativos y altern
         assert.ok(routine.exercises.every(ex => ex.duration > 0 && ex.rest >= 0 && ex.restAfter >= 0 && ex.sets % 2 === 0));
       }
     }
+  }
+});
+
+test("fuerza durante el día usa el kit de pesas y conserva series por repeticiones", () => {
+  const intent = planner.resolveIntent("Quiero retomar con mi kit de pesas y entrenar todo el cuerpo");
+  const candidates = planner.compatibleExercises(intent);
+  const selected = planner.selectExercises(candidates, intent, [], null);
+  const routine = planner.buildRoutine(selected.map(ex => ex.id), null, intent);
+  assert.equal(routine.workoutStyle, "daily");
+  assert.ok(routine.equipment.includes("mancuernas"));
+  assert.ok(routine.exercises.every(ex => ex.reps === "6" && ex.duration === 0 && ex.weight === 0));
+  assert.equal(new Set(selected.flatMap(ex => ex.bodyRegions)).size, 3);
+  const next = planner.selectExercises(candidates, intent, [], null, new Set(selected.map(ex => ex.id)));
+  assert.ok(next.some(ex => !selected.includes(ex)));
+});
+
+test("fuerza por tiempo estima la duración y respeta sin equipo", () => {
+  const routine = plan("Fuerza de cuerpo completo sin equipo", 15, {});
+  assert.equal(routine.targetMin, 15);
+  assert.deepEqual(routine.equipment, []);
+  assert.ok(routine.exercises.some(ex => ex.reps && !ex.duration));
+});
+
+test("cardio y equilibrio incluyen ejercicios de su propia modalidad", () => {
+  for (const category of ["cardio", "equilibrio"]) {
+    const routine = plan(category, 10, { category, position: "de_pie" });
+    assert.ok(routine.exercises.some(ex => ex.exerciseMeta.modality === category));
+    assert.equal(seconds(routine), 600);
   }
 });
 

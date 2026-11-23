@@ -2598,7 +2598,7 @@ function exerciseCatalogDetails(ex) {
     ["Equipo", record.equipment.join(", ") || "Sin equipo"],
     ["Músculos y articulaciones", record.muscles.join(", ") + " · " + record.joints.join(", ")],
     ["Modalidad y objetivos", record.modality.replaceAll("_", " ") + " · " + record.goals.map(goal => GymCatalog.categories[goal]).join(", ")],
-    ["Dosis orientativa", record.recommendation.holdSeconds.join("–") + " segundos o " + record.recommendation.repetitions.join("–") + " repeticiones cómodas"],
+    ["Dosis orientativa", (record.modality === "fuerza" ? "" : record.recommendation.holdSeconds.join("–") + " segundos o ") + record.recommendation.repetitions.join("–") + " repeticiones cómodas"],
     ["Ejecución", record.instructions.join(" ")],
     ["Errores comunes", record.commonMistakes.join(" ")],
     ["Precauciones", record.precautions.join(" ")],
@@ -2614,6 +2614,7 @@ function exerciseCatalogDetails(ex) {
 
 function appendFlexibilityTracker(card, ex) {
   const record = GymCatalog.findExercise(ex);
+  if (["fuerza", "cardio", "equilibrio"].includes(record?.modality)) return;
   if (!record && !ex.flexibilityProgress) return;
   const previous = State.sessions.slice().sort((a, b) => b.date.localeCompare(a.date))
     .flatMap(session => (session.exercises || []).map(item => ({ ...item, date:session.date })))
@@ -2845,6 +2846,19 @@ function renderSessionEquipment() {
 /* ---------------------------
    ROUTINE MODAL
 --------------------------- */
+function renderExerciseReferences(container, references) {
+  const links = (Array.isArray(references) ? references : []).flatMap(reference => {
+    if (typeof reference?.url !== "string" || !reference.url.startsWith("https://")) return [];
+    return [el("li", {}, [el("a", {
+      href: reference.url, target:"_blank", rel:"noopener noreferrer", text: reference.title || "Ver fuente"
+    })])];
+  });
+  container.replaceChildren(...(links.length
+    ? [el("strong", { text:"Referencias para el ejercicio o equipo solicitado" }), el("ul", {}, links)]
+    : []));
+  container.classList.toggle("is-hidden", !links.length);
+}
+
 function openRoutineAiModal(isProgram = false) {
   const sync = window.FirebaseSync;
   const user = sync?.currentUser;
@@ -2858,6 +2872,7 @@ function openRoutineAiModal(isProgram = false) {
   const prompt = $("#routineAiPrompt");
   const submit = $("#btnSubmitRoutineAi");
   const status = $("#routineAiStatus");
+  const references = $("#routineAiReferences");
   const daysField = $("#routineAiDaysField");
   const daysInput = $("#routineAiDays");
   const style = $("#routineAiStyle");
@@ -2887,6 +2902,7 @@ function openRoutineAiModal(isProgram = false) {
     save.classList.add("is-hidden");
     save.onclick = null;
     status.textContent = "";
+    renderExerciseReferences(references);
   };
   style.onchange();
   submit.disabled = false;
@@ -2909,6 +2925,7 @@ function openRoutineAiModal(isProgram = false) {
     const days = daysInput.value ? Number(daysInput.value) : null;
     const daily = isProgram && style.value === "daily";
     style.disabled = true;
+    renderExerciseReferences(references);
     status.textContent = isProgram ? "Preparando tu programa semanal…" : "Preparando tu rutina…";
     const isCurrent = () => !modal.hidden && form.onsubmit === generate &&
       sync.currentUser?.uid === user.uid;
@@ -2945,6 +2962,7 @@ function openRoutineAiModal(isProgram = false) {
             el("p", { class:"muted", text:(routine.generationNotes || []).join(" ") })
           ]))
         );
+        renderExerciseReferences(references, data.exerciseReferences);
         preview.classList.remove("is-hidden");
         save.classList.remove("is-hidden");
         status.textContent = `Borrador listo · ${data.routines.length} día(s) por semana.`;
@@ -2972,6 +2990,7 @@ function openRoutineAiModal(isProgram = false) {
         status.textContent = error.message;
         return;
       }
+      renderExerciseReferences(references, error.details?.references);
       const knownCodes = ["invalid-argument", "permission-denied", "resource-exhausted", "failed-precondition", "unavailable"];
       const code = error.code?.replace(/^functions\//, "");
       status.textContent = knownCodes.includes(code) && error.message !== code
@@ -2994,6 +3013,7 @@ function openRoutineModal({ mode="new", routine=null } = {}) {
   if (!m) return;
   m.routineData = routine ? { ...routine } : {};
   $("#routineGenerationNotes").textContent = (routine?.generationNotes || []).join(" ");
+  renderExerciseReferences($("#routineDraftReferences"), routine?.exerciseReferences);
 
   const isEdit = mode === "edit" && routine;
   $("#modalRoutineTitle").textContent = isEdit ? "Editar rutina" : mode === "draft" ? "Revisar borrador de IA" : "Nueva rutina";

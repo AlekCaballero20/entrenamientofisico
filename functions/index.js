@@ -4,7 +4,7 @@ const { defineSecret } = require("firebase-functions/params");
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const logger = require("firebase-functions/logger");
 const { records, supportedMinutes, buildRoutine, validOptions, resolveIntent, compatibleExercises, selectExercises } = require("./routine");
-const { categories, positions, surfaces, riskTags } = require("./exercise-catalog");
+const { categories, positions, surfaces, riskTags, normalizeName } = require("./exercise-catalog");
 
 initializeApp();
 const geminiKey = defineSecret("GEMINI_API_KEY");
@@ -15,6 +15,78 @@ const allowedEmails = new Set([
   "catalina.medina.leal@gmail.com"
 ]);
 const dailyLimit = 10;
+const geminiApi = "https://generativelanguage.googleapis.com/v1beta/models";
+const aceLibrary = "https://www.acefitness.org/resources/everyone/exercise-library/";
+
+async function searchAceLibrary(topic) {
+  const aliases = {
+    "barra olimpica": "barbell", "barra de pesas": "barbell", "barra de dominadas": "pull up bar",
+    "pelota suiza": "stability ball", "balon medicinal": "medicine ball", "cajon pliometrico": "raised platform box",
+    "correas de suspension": "trx", "maquinas de pesas": "weight machines", "cuerdas de batalla": "heavy ropes"
+  };
+  const query = normalizeName(topic);
+  const keywords = (aliases[query] || query).split(" ").filter(word => word.length > 1);
+  if (!keywords.length) return [];
+  try {
+    const response = await fetch(aceLibrary, { signal: AbortSignal.timeout(3500) });
+    if (!response.ok) return [];
+    const html = await response.text();
+    const references = new Map();
+    for (const match of html.matchAll(/href=["'](\/resources\/everyone\/exercise-library\/(?:equipment|\d+)\/([a-z0-9-]+)\/)["']/gi)) {
+      const [, path, slug] = match;
+      const words = normalizeName(slug).split(" ");
+      if (!keywords.every(word => words.includes(word))) continue;
+      const url = new URL(path, aceLibrary).href;
+      references.set(url, { url, title: "ACE Fitness · " + slug.replaceAll("-", " ") });
+      if (references.size === 4) break;
+    }
+    return [...references.values()];
+  } catch {
+    return [];
+  }
+}
+
+async function findExerciseReferences(topic) {
+  const aceReferences = await searchAceLibrary(topic);
+  if (aceReferences.length) return aceReferences;
+  try {
+    const response = await fetch(geminiApi + "/gemini-2.5-flash:generateContent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": geminiKey.value() },
+      signal: AbortSignal.timeout(6500),
+      body: JSON.stringify({
+        tools: [{ google_search: {} }],
+        contents: [{ role: "user", parts: [{ text:
+          "Busca en Google fichas de ejercicios para este equipo o movimiento. Prioriza ACE Fitness, NASM y fuentes institucionales. No hagas una rutina ni des indicaciones médicas. Tema: " + topic
+        }] }],
+        generationConfig: { maxOutputTokens: 1024, thinkingConfig: { thinkingBudget: 0 } }
+      })
+    });
+    if (!response.ok) throw new Error("Search HTTP " + response.status);
+    const data = await response.json();
+    const grounding = data.candidates?.[0]?.groundingMetadata;
+    const cited = new Set((grounding?.groundingSupports || []).flatMap(item => item.groundingChunkIndices || []));
+    const references = new Map();
+    (grounding?.groundingChunks || []).forEach(({ web }, index) => {
+      if (!cited.has(index) || typeof web?.uri !== "string" || typeof web.title !== "string") return;
+      const url = URL.parse(web.uri);
+      if (url?.protocol !== "https:" || url.username || url.password) return;
+      if (!["vertexaisearch.cloud.google.com", "www.acefitness.org", "www.nasm.org",
+        "www.nhs.uk", "www.mayoclinic.org", "www.acsm.org"].includes(url.hostname)) return;
+      if (url.hostname === "vertexaisearch.cloud.google.com" && !url.pathname.startsWith("/grounding-api-redirect/")) return;
+      references.set(url.href, { url: url.href, title: web.title.slice(0, 120) });
+    });
+    if (references.size) return [...references.values()].slice(0, 4);
+  } catch (error) {
+    logger.warn("No se obtuvieron referencias de ejercicios", { type: error.name });
+  }
+  return [{ url: aceLibrary, title: "Biblioteca de ejercicios de ACE Fitness" }];
+}
+
+function searchTopic(selection) {
+  const topic = selection.exerciseSearchTopic;
+  return typeof topic === "string" && /^[\p{L}\p{M} -]{3,65}$/u.test(topic.trim()) ? topic.trim() : "";
+}
 
 async function reserveGeneration(uid) {
   const day = new Intl.DateTimeFormat("en-CA", {
@@ -62,14 +134,17 @@ exports.generateRoutine = onCall({
   }
 
   await reserveGeneration(auth.uid);
+  let topic = "";
   try {
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+    const response = await fetch(`${geminiApi}/${model}:generateContent`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-goog-api-key": geminiKey.value() },
       signal: AbortSignal.timeout(18000),
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: [
-          "Interpreta la petición y selecciona ejercicios reales de este catálogo para flexibilidad, movilidad, danza, postura o relajación.",
+          "Interpreta la petición y selecciona ejercicios del catálogo para fuerza, cardio suave, equilibrio, flexibilidad, movilidad, danza, postura o relajación.",
+          "Si la persona tiene un kit de pesas, interpreta que puede usar mancuernas. Prioriza el equipo que indicó y evita añadir otros aparatos. Para objetivos de fuerza prioriza ejercicios de fuerza con repeticiones.",
+          "Si falta un ejercicio o equipo solicitado en el catálogo y es útil buscarlo, escribe en exerciseSearchTopic solo el nombre genérico del equipo o ejercicio, sin nombres de personas, datos ni síntomas. Para temas médicos o ejercicios presentes, devuelve una cadena vacía. Si usas status unsupported por un aparato ausente, rellena exerciseSearchTopic con el nombre del aparato, por ejemplo TRX. Si la persona lo prefiere, prepara un borrador con alternativas compatibles cuando sea posible.",
           daily
             ? "Propón hasta 4 ejercicios suaves por día que puedan hacerse individualmente en momentos distintos. No hay un objetivo de duración por sesión."
             : `Propón hasta ${minutes / 2.5} IDs distintos. Prioriza movimiento suave al inicio y relajación al final. La duración la fija la app.`,
@@ -126,6 +201,7 @@ exports.generateRoutine = onCall({
                 } }
               } : {}),
               unavailableRequirement: { type: "STRING" },
+              exerciseSearchTopic: { type: "STRING" },
               constraints: {
                 type: "OBJECT",
                 properties: {
@@ -140,7 +216,7 @@ exports.generateRoutine = onCall({
                 required: ["requiredPositions", "requiredSurfaces", "excludedRiskTags", "excludedEquipment", "requiredEquipment", "fullBody", "preferences"]
               }
             },
-            required: ["status", "exerciseIds", "unavailableRequirement", "constraints",
+            required: ["status", "exerciseIds", "unavailableRequirement", "exerciseSearchTopic", "constraints",
               ...(isProgram ? ["programName", "days"] : [])]
           }
         }
@@ -163,24 +239,27 @@ exports.generateRoutine = onCall({
         "La descripción incluye síntomas que necesitan valoración individual antes de una rutina adaptada. Consulta con un profesional de salud. Si van a entrenar dos personas, solicita una rutina por separado para cada una.",
         { reason: "health-review" });
     }
+    topic = searchTopic(selection);
     if (selection.status === "unsupported" && selection.unavailableRequirement) {
       throw new HttpsError("failed-precondition",
         "No pudimos satisfacer este requisito obligatorio: " + String(selection.unavailableRequirement).slice(0, 240) +
-        ". Puedes ajustar ese requisito manteniendo tus restricciones de salud.",
+        ". Ajusta el requisito o consulta las referencias disponibles.",
         { reason: "unsupported", condition: String(selection.unavailableRequirement).slice(0, 240) });
     }
     if (!["ok", "unsupported"].includes(selection.status)) throw new Error("Clasificación inválida");
     const intent = resolveIntent(prompt, options, selection.constraints || {});
     const candidatesForIntent = compatibleExercises(intent);
+    const usedIds = new Set();
     function buildDay(ids) {
       const proposedIds = Array.isArray(ids) ? ids : [];
       let selected;
       try {
-        selected = selectExercises(candidatesForIntent, intent, proposedIds, daily ? null : minutes);
+        selected = selectExercises(candidatesForIntent, intent, proposedIds, daily ? null : minutes, usedIds);
     } catch (error) {
       throw new HttpsError("failed-precondition", error.message, { reason: "unsupported" });
     }
     const routine = buildRoutine(selected.map(ex => ex.id), daily ? null : minutes, intent);
+    selected.forEach(ex => usedIds.add(ex.id));
     const substitutions = proposedIds.filter(id => !selected.some(ex => ex.id === id));
     if (substitutions.length || selection.status === "unsupported") {
       routine.generationNotes.push("Se eligieron alternativas del catálogo que cumplen los filtros obligatorios.");
@@ -191,7 +270,11 @@ exports.generateRoutine = onCall({
     if (missingRegions.length) routine.generationNotes.push("Cobertura parcial con estas restricciones: falta " + missingRegions.join(", ") + ".");
     return routine;
     }
-    if (!isProgram) return buildDay(selection.exerciseIds);
+    if (!isProgram) {
+      const routine = buildDay(selection.exerciseIds);
+      if (topic) routine.exerciseReferences = await findExerciseReferences(topic);
+      return routine;
+    }
     if (!Array.isArray(selection.days) || selection.days.length < 1 || selection.days.length > 7 ||
         (days !== null && selection.days.length !== days) ||
         selection.days.some(day => !day || typeof day.focus !== "string" || !day.focus.trim() ||
@@ -201,15 +284,22 @@ exports.generateRoutine = onCall({
       });
       throw new Error("Programa incompleto");
     }
-    return {
+    const program = {
       name: String(selection.programName || "").trim().slice(0, 100) || "Programa semanal",
       routines: selection.days.map((day, index) => ({
         ...buildDay(day.exerciseIds),
         name: `Día ${index + 1} · ${day.focus.trim().slice(0, 80)}`
       }))
     };
+    if (topic) program.exerciseReferences = await findExerciseReferences(topic);
+    return program;
   } catch (error) {
-    if (error instanceof HttpsError) throw error;
+    if (error instanceof HttpsError) {
+      if (topic && error.details?.reason === "unsupported") {
+        error.details.references = await findExerciseReferences(topic);
+      }
+      throw error;
+    }
     logger.warn("No se pudo generar un borrador de rutina", { type: error.name });
     throw new HttpsError("unavailable", "No pudimos generar una rutina válida. Intenta más tarde.");
   }
