@@ -2419,6 +2419,7 @@ function isHttpUrl(url) {
 }
 
 const sharedExerciseImages = new Map();
+const exerciseGifVersion = 2;
 const imageGenerations = new Map();
 let unsubscribeExerciseImages = null;
 
@@ -2457,7 +2458,10 @@ async function generateExerciseImage(ex, format = "image") {
   const sync = window.FirebaseSync;
   if (!sync?.currentUser || !sync.app?.functions) throw new Error("Inicia sesión para crear imágenes.");
   const key = `${format}:${ExerciseIdentity.normalizeExerciseName(ex.name)}`;
-  if (sharedExerciseImages.has(key)) return { ...sharedExerciseImages.get(key), reused: true };
+  const cached = sharedExerciseImages.get(key);
+  if (cached && (format !== "gif" || cached.gifVersion >= exerciseGifVersion)) {
+    return { ...cached, reused: true };
+  }
   if (imageGenerations.has(key)) return imageGenerations.get(key);
   const uid = sync.currentUser.uid;
   const pending = (async () => {
@@ -2480,7 +2484,20 @@ function exerciseImageControls(getExercise) {
     el("option", { value:"image", text:"Imagen fija" }),
     el("option", { value:"gif", text:"GIF animado" })
   ]);
-  const button = el("button", { class:"btn btn--ghost btn--sm", type:"button", text:"Crear guía IA" });
+  const button = el("button", { class:"btn btn--ghost btn--sm", type:"button" });
+  const updateButton = () => {
+    const name = ExerciseIdentity.normalizeExerciseName(getExercise()?.name);
+    const cached = sharedExerciseImages.get(`${format.value}:${name}`);
+    if (format.value === "gif") {
+      button.textContent = cached && !(cached.gifVersion >= exerciseGifVersion)
+        ? "Actualizar GIF animado"
+        : cached ? "Usar GIF animado" : "Crear GIF animado";
+    } else {
+      button.textContent = cached ? "Usar imagen fija" : "Crear imagen fija con IA";
+    }
+  };
+  format.onchange = updateButton;
+  updateButton();
   button.onclick = async () => {
     const ex = getExercise();
     if (!String(ex.name || "").trim()) {
@@ -2490,9 +2507,9 @@ function exerciseImageControls(getExercise) {
     button.disabled = true;
     format.disabled = true;
     const selectedFormat = format.value;
-    const label = selectedFormat === "gif" ? "GIF" : "Imagen";
-    button.textContent = "Creando guía…";
-    status.textContent = "Preparando la ilustración. Puede tardar alrededor de un minuto.";
+    const label = selectedFormat === "gif" ? "GIF animado" : "Imagen fija";
+    button.textContent = selectedFormat === "gif" ? "Preparando GIF animado…" : "Preparando imagen fija…";
+    status.textContent = "Puede tardar alrededor de un minuto.";
     try {
       const image = await generateExerciseImage(ex, selectedFormat);
       status.textContent = image.reused ? `${label} disponible en la biblioteca.` : `${label} disponible en los ejercicios con este nombre.`;
@@ -2501,11 +2518,12 @@ function exerciseImageControls(getExercise) {
     } finally {
       button.disabled = false;
       format.disabled = false;
-      button.textContent = "Crear guía IA";
+      updateButton();
     }
   };
   return el("div", { class:"exercise-image-controls" }, [
-    el("div", { class:"exercise-media" }, [format, button]), status
+    el("label", { class:"field" }, [el("span", { class:"field__label", text:"Formato de la guía visual" }), format]),
+    button, status
   ]);
 }
 

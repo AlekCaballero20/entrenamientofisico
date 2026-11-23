@@ -49,6 +49,7 @@ function setup() {
     "firebase-functions/v2/https": { HttpsError },
     "firebase-functions/logger": { warn() {} },
     "./exercise-identity": require("./exercise-identity"),
+    "./hinge-animation": require("./hinge-animation"),
     sharp
   };
   const sandbox = {
@@ -126,6 +127,39 @@ test("el GIF conserva la imagen fija y reproduce las cuatro posturas de ida y vu
   const { data, info } = await decoded.raw().toBuffer({ resolveWithObject: true });
   const frameStride = info.width * (info.height / pages) * info.channels;
   assert.deepEqual(Array.from({ length: pages }, (_, i) => data[i * frameStride]), [10, 70, 130, 220, 130, 70]);
+});
+
+test("el peso muerto rumano actualiza el GIF antiguo con una bisagra reproducible", async () => {
+  const env = setup();
+  const animated = request("Peso muerto rumano con mancuernas");
+  animated.data.format = "gif";
+  const first = await env.generate(animated, "key");
+  const document = [...env.docs.keys()].find(key => key.endsWith("-gif"));
+  const old = { ...env.docs.get(document), gifVersion: 1 };
+  env.docs.set(document, old);
+
+  env.state.failStorage = true;
+  await assert.rejects(env.generate(animated, "key"), { code: "unavailable" });
+  assert.equal(env.docs.get(document).status, "ready");
+  assert.equal(env.docs.get(document).imageUrl, old.imageUrl);
+
+  env.state.failStorage = false;
+  const updated = await env.generate(animated, "key");
+  assert.equal(updated.gifVersion, 2);
+  assert.notEqual(updated.imageUrl, old.imageUrl);
+  assert.equal((await env.generate(animated, "key")).reused, true);
+  assert.equal(env.calls(), 0);
+
+  const decoded = sharp(env.files.get(updated.storagePath), { animated: true });
+  const { pages, delay } = await decoded.metadata();
+  assert.equal(pages, 20);
+  assert.equal(delay[0], 600);
+  assert.equal(delay[10], 600);
+  const { data, info } = await decoded.raw().toBuffer({ resolveWithObject: true });
+  const stride = info.width * (info.height / pages) * info.channels;
+  const frame = index => data.subarray(index * stride, (index + 1) * stride);
+  assert.notDeepEqual(frame(0), frame(10));
+  for (let i = 1; i < 10; i++) assert.deepEqual(frame(i), frame(pages - i));
 });
 
 test("un fallo permite reintentar y consume intentos sin publicar imágenes incompletas", async () => {
