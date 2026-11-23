@@ -58,7 +58,7 @@
   <script defer src="./functions/exercise-identity.js?v=0.13.0"></script>
   <script defer src="./functions/exercise-catalog.js?v=0.13.0"></script>
   <script defer src="./workout-reminders.js?v=0.14.0"></script>
-  <script defer src="./app.js?v=0.14.0"></script>
+  <script defer src="./app.js?v=0.14.1"></script>
 
   <!-- =========================
        Service Worker (PWA)
@@ -1170,8 +1170,16 @@
             <span class="field__label">Días por semana</span>
             <input id="routineAiDays" class="input" type="number" min="1" max="7" step="1" placeholder="Según la descripción" disabled />
           </label>
-          <label class="field">
-            <span class="field__label">Duración (minutos)</span>
+          <label id="routineAiStyleField" class="field is-hidden">
+            <span class="field__label">Cómo entrenar</span>
+            <select id="routineAiStyle" class="input" aria-describedby="routineAiDailyHelp" disabled>
+              <option value="continuous">De corrido (por tiempo)</option>
+              <option value="daily">Durante el día</option>
+            </select>
+            <span id="routineAiDailyHelp" class="muted is-hidden">Haz un ejercicio a la vez y retoma cuando tengas otro momento libre.</span>
+          </label>
+          <label id="routineAiMinutesField" class="field">
+            <span class="field__label">Duración por sesión (minutos)</span>
             <select id="routineAiMinutes" class="input">
               <option value="10">10</option>
               <option value="15">15</option>
@@ -1423,7 +1431,7 @@
               <div class="help__icon" aria-hidden="true">📅</div>
               <div>
                 <div class="help__title">Planea toda tu semana con IA</div>
-                <div class="help__text muted">En <strong>Rutinas → Gestionar programa → Crear programa con IA</strong>, indica la duración por día y describe tu objetivo. Por ejemplo: «Quiero 3 días a la semana para mejorar la movilidad de caderas, espalda y hombros». Puedes escribir la cantidad de días en la descripción o elegirla en el formulario. Abre cada día del borrador para ver los ejercicios y toca <strong>Guardar programa</strong> para guardar todas las rutinas juntas.</div>
+                <div class="help__text muted">En <strong>Rutinas → Gestionar programa → Crear programa con IA</strong>, elige <strong>De corrido (por tiempo)</strong> para fijar los minutos por sesión o <strong>Durante el día</strong> para hacer un ejercicio a la vez cuando tengas tiempo. Describe tu objetivo e indica cuántos días por semana quieres entrenar en el formulario o en la descripción. Abre cada día del borrador para revisar los ejercicios y toca <strong>Guardar programa</strong>.</div>
               </div>
             </div>
 

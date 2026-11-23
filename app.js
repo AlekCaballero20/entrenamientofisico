@@ -1405,6 +1405,10 @@ function buildRoutineRecord(data) {
   };
 }
 
+function routineDurationLabel(routine) {
+  return routine.workoutStyle === "daily" ? "Durante el día" : `${routine.targetMin || 0} min`;
+}
+
 function createRoutine(data) {
   const r = buildRoutineRecord(data);
   State.routines.unshift(r);
@@ -1786,7 +1790,7 @@ function renderNextRoutineSuggestion() {
   
 
   $("#nextRoutineName") && ($("#nextRoutineName").textContent = pick.name);
-  $("#nextRoutineMeta") && ($("#nextRoutineMeta").textContent = `${pick.tag || "Sin categoría"} • ${pick.exercises.length} ejercicios • ${pick.targetMin || 0} min`);
+  $("#nextRoutineMeta") && ($("#nextRoutineMeta").textContent = `${pick.tag || "Sin categoría"} • ${pick.exercises.length} ejercicios • ${routineDurationLabel(pick)}`);
 
   list.innerHTML = "";
   pick.exercises.slice(0,6).forEach(ex => {
@@ -2362,7 +2366,7 @@ function renderRoutines() {
       if (!node) return;
 
       $(".tile__title", node).textContent = r.name;
-      $(".tile__meta", node).textContent = `${r.targetMin || 0} min • ${r.exercises.length} ejercicios`;
+      $(".tile__meta", node).textContent = `${routineDurationLabel(r)} • ${r.exercises.length} ejercicios`;
       const pill = $(".pill", node);
       pill.textContent = r.tag || "Sin categoría";
 
@@ -2734,7 +2738,7 @@ function renderRoutineDetail() {
     imageStatus.textContent = "";
     imageStatus.dataset.routineId = r.id;
   }
-  $("#routineDetailMeta") && ($("#routineDetailMeta").textContent = `${r.tag || "Sin categoría"} • ${r.exercises.length} ejercicios • ${r.targetMin || 0} min` + (r.progressionWeek ? " • Semana " + r.progressionWeek : ""));
+  $("#routineDetailMeta") && ($("#routineDetailMeta").textContent = `${r.tag || "Sin categoría"} • ${r.exercises.length} ejercicios • ${routineDurationLabel(r)}` + (r.progressionWeek ? " • Semana " + r.progressionWeek : ""));
   $("#routineCardio") && ($("#routineCardio").textContent = r.cardioSuggest || "-");
   renderEquipmentChecklist($("#routineEquipmentList"), routineEquipment(r), `routine:${r.id}`);
 
@@ -2856,11 +2860,15 @@ function openRoutineAiModal(isProgram = false) {
   const status = $("#routineAiStatus");
   const daysField = $("#routineAiDaysField");
   const daysInput = $("#routineAiDays");
+  const style = $("#routineAiStyle");
+  const minutes = $("#routineAiMinutes");
   const preview = $("#programAiPreview");
   const save = $("#btnSaveAiProgram");
   $("#modalRoutineAiTitle").textContent = isProgram ? "Crear programa con IA" : "Crear rutina con IA";
   daysField.classList.toggle("is-hidden", !isProgram);
   daysInput.disabled = !isProgram;
+  $("#routineAiStyleField").classList.toggle("is-hidden", !isProgram);
+  style.disabled = !isProgram;
   preview.classList.add("is-hidden");
   preview.replaceChildren();
   save.classList.add("is-hidden");
@@ -2870,6 +2878,17 @@ function openRoutineAiModal(isProgram = false) {
     ...Object.entries(GymCatalog.categories).map(([value, text]) => el("option", { value, text }))
   );
   form.reset();
+  style.onchange = () => {
+    const daily = isProgram && style.value === "daily";
+    minutes.disabled = daily;
+    $("#routineAiMinutesField").classList.toggle("is-hidden", daily);
+    $("#routineAiDailyHelp").classList.toggle("is-hidden", !daily);
+    preview.classList.add("is-hidden");
+    save.classList.add("is-hidden");
+    save.onclick = null;
+    status.textContent = "";
+  };
+  style.onchange();
   submit.disabled = false;
   status.textContent = "";
 
@@ -2888,13 +2907,16 @@ function openRoutineAiModal(isProgram = false) {
     save.classList.add("is-hidden");
     save.onclick = null;
     const days = daysInput.value ? Number(daysInput.value) : null;
+    const daily = isProgram && style.value === "daily";
+    style.disabled = true;
     status.textContent = isProgram ? "Preparando tu programa semanal…" : "Preparando tu rutina…";
     const isCurrent = () => !modal.hidden && form.onsubmit === generate &&
       sync.currentUser?.uid === user.uid;
     try {
       const call = sync.app.functions("us-central1").httpsCallable("generateRoutine", { timeout: 35000 });
       const { data } = await call({
-        minutes: Number($("#routineAiMinutes").value), prompt: description,
+        ...(daily ? { workoutStyle: "daily" } : { minutes: Number(minutes.value) }),
+        prompt: description,
         ...(isProgram ? { days } : {}),
         options: {
           category: $("#routineAiCategory").value, position: $("#routineAiPosition").value,
@@ -2907,7 +2929,8 @@ function openRoutineAiModal(isProgram = false) {
       if (isProgram) {
         if (!Array.isArray(data?.routines) || !data.routines.length ||
             (days !== null && data.routines.length !== days) ||
-            data.routines.some(routine => !routine?.exercises?.length)) {
+            data.routines.some(routine => !routine?.exercises?.length ||
+              (daily && routine.workoutStyle !== "daily"))) {
           status.textContent = "El generador no devolvió el programa completo. Intenta de nuevo.";
           return;
         }
@@ -2917,7 +2940,7 @@ function openRoutineAiModal(isProgram = false) {
             el("span", { class:"field__label", text:"Nombre del programa" }), name
           ]),
           ...data.routines.map(routine => el("details", { class:"ai-options" }, [
-            el("summary", { text:`${routine.name} · ${routine.targetMin} min` }),
+            el("summary", { text:`${routine.name} · ${routineDurationLabel(routine)}` }),
             el("ul", {}, routine.exercises.map(exercise => el("li", { text:exercise.name }))),
             el("p", { class:"muted", text:(routine.generationNotes || []).join(" ") })
           ]))
@@ -2955,7 +2978,10 @@ function openRoutineAiModal(isProgram = false) {
         ? error.message
         : "No pudimos conectar con el generador. Intenta más tarde.";
     } finally {
-      if (isCurrent()) submit.disabled = false;
+      if (isCurrent()) {
+        submit.disabled = false;
+        style.disabled = !isProgram;
+      }
     }
   };
   form.onsubmit = generate;
@@ -3543,6 +3569,15 @@ function syncStartRoutineSelect() {
   start.innerHTML = "";
   $$("option", form).forEach(opt => start.appendChild(opt.cloneNode(true)));
   start.value = form.value || "";
+  const style = $("#workoutStyle");
+  if (style.dataset.routineId === form.value || State.sessionDraft?.workoutStyle) return;
+  const routine = State.routines.find(item => item.id === form.value);
+  if (routine?.workoutStyle === "daily" || style.dataset.dailyRoutine === "true") {
+    style.value = routine?.workoutStyle === "daily" ? "daily" : "continuous";
+  }
+  style.dataset.routineId = form.value;
+  style.dataset.dailyRoutine = String(routine?.workoutStyle === "daily");
+  $("#workoutReminderField").classList.toggle("is-hidden", style.value !== "daily");
 }
 
 function renderWorkoutResume() {
@@ -3651,6 +3686,7 @@ function prefillNewSessionFromRoutine(routineId) {
   }
   renderNewSession();
   $("#sessionRoutineSelect") && ($("#sessionRoutineSelect").value = routineId);
+  syncStartRoutineSelect();
   $("#sessionDate") && ($("#sessionDate").value = todayISO());
   $("#sessionDuration") && ($("#sessionDuration").value = "");
   $("#sessionRPE") && ($("#sessionRPE").value = "");

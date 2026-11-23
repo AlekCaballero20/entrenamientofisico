@@ -75,6 +75,23 @@ test("genera un programa de tres días con una sola solicitud", async () => {
   assert.equal(providerCalls(), 1);
 });
 
+test("genera un programa repartido durante el día sin minutos por sesión", async () => {
+  const { handler, providerCalls } = loadHandler([], "ok", {
+    days: ["Caderas", "Hombros"].map(focus => ({ focus, exerciseIds: [Object.keys(catalog)[0]] }))
+  });
+  const req = request();
+  req.data = { prompt: "Movilidad suave", days: 2, workoutStyle: "daily" };
+  const result = await handler(req);
+  assert.equal(result.routines.length, 2);
+  for (const routine of result.routines) {
+    assert.equal(routine.workoutStyle, "daily");
+    assert.equal(routine.targetMin, 0);
+    assert.ok(routine.exercises.length > 0 && routine.exercises.length <= 4);
+    assert.ok(routine.exercises.every(ex => ex.sets === 2 && ex.restAfter === 0));
+  }
+  assert.equal(providerCalls(), 1);
+});
+
 test("rechaza programas incompletos y cantidades de días fuera de rango", async () => {
   const { handler, providerCalls } = loadHandler([], "ok", { days: [] });
   const req = request();

@@ -128,8 +128,9 @@ function scoreExercise(ex, intent) {
 function selectExercises(candidates, intent, proposedIds, minutes) {
   if (intent.incompatible) throw new Error("Las restricciones de posición o superficie se contradicen. Revisa el texto y los filtros obligatorios para elegir una combinación compatible.");
   const ranked = candidates.slice().sort((a, b) => scoreExercise(b, intent) - scoreExercise(a, intent) || a.id.localeCompare(b.id));
-  const count = Math.min(minutes / 2.5, candidates.length);
-  if (count < Math.ceil(minutes * 60 / 240)) {
+  const daily = minutes === null;
+  const count = Math.min(daily ? 4 : minutes / 2.5, candidates.length);
+  if (count < (daily ? 1 : Math.ceil(minutes * 60 / 240))) {
     const labels = [];
     if (intent.requiredPositions.length) labels.push("posición " + intent.requiredPositions.map(value => value.replaceAll("_", " ")).join(" / "));
     if (intent.requiredSurfaces.length) labels.push("superficie " + intent.requiredSurfaces.map(value => value.replaceAll("_", " ")).join(" / "));
@@ -137,7 +138,8 @@ function selectExercises(candidates, intent, proposedIds, minutes) {
     if (intent.noEquipment) labels.push("sin equipo");
     if (intent.requiredEquipment.length) labels.push("uso obligatorio de " + intent.requiredEquipment.join(", "));
     throw new Error("Solo hay " + count + " ejercicios compatibles con " +
-      (labels.join(", ") || "las condiciones elegidas") + ". Ajusta una condición o elige una duración menor.");
+      (labels.join(", ") || "las condiciones elegidas") +
+      (daily ? ". Ajusta una condición." : ". Ajusta una condición o elige una duración menor."));
   }
   const selected = [];
   const append = ex => {
@@ -169,9 +171,12 @@ function selectExercises(candidates, intent, proposedIds, minutes) {
 }
 
 function buildPlannedRoutine(ids, minutes, intent) {
+  const daily = minutes === null;
   const compatibleIds = new Set(compatibleExercises(intent).map(ex => ex.id));
-  if (![10, 15, 20, 25].includes(minutes) || !Array.isArray(ids) || ids.length < 2 ||
-      ids.length > minutes / 2.5 || ids.length < Math.ceil(minutes * 60 / 240) ||
+  const minCount = daily ? 1 : Math.max(2, Math.ceil(minutes * 60 / 240));
+  const maxCount = daily ? 4 : minutes / 2.5;
+  if ((!daily && ![10, 15, 20, 25].includes(minutes)) || !Array.isArray(ids) ||
+      ids.length < minCount || ids.length > maxCount ||
       new Set(ids).size !== ids.length || ids.some(id => typeof id !== "string" || !compatibleIds.has(id))) {
     throw new Error("Selección de ejercicios inválida");
   }
@@ -185,24 +190,29 @@ function buildPlannedRoutine(ids, minutes, intent) {
     const blockSeconds = slot + (index < remainder ? 1 : 0);
     const holdCap = !intent.progressComfortable || intent.week <= 2 ? 20 : intent.week <= 4 ? 25 : 30;
     const duration = Math.min(holdCap, record.recommendation.holdSeconds[1]);
+    const exercise = { ...toExercise(record), duration, progressionWeek: intent.week };
+    if (daily) return { ...exercise, sets: 2, rest: 10, restAfter: 0 };
     const sets = Math.min(8, Math.max(4, Math.floor((blockSeconds + 10) / (duration + 10) / 2) * 2));
     const rest = isLast ? Math.floor((blockSeconds - sets * duration) / (sets - 1)) : 10;
     return {
-      ...toExercise(record), duration, sets, rest,
-      restAfter: isLast ? 0 : blockSeconds - sets * duration - (sets - 1) * rest,
-      progressionWeek: intent.week
+      ...exercise, sets, rest,
+      restAfter: isLast ? 0 : blockSeconds - sets * duration - (sets - 1) * rest
     };
   });
-  const scheduled = exercises.reduce((total, ex) => total + ex.sets * ex.duration + (ex.sets - 1) * ex.rest + ex.restAfter, 0);
-  exercises[exercises.length - 2].restAfter += minutes * 60 - scheduled;
+  if (!daily) {
+    const scheduled = exercises.reduce((total, ex) => total + ex.sets * ex.duration + (ex.sets - 1) * ex.rest + ex.restAfter, 0);
+    exercises[exercises.length - 2].restAfter += minutes * 60 - scheduled;
+  }
   return {
-    name: categories[intent.category] + " · " + minutes + " min",
+    name: categories[intent.category] + (daily ? " · Durante el día" : " · " + minutes + " min"),
     tag: categories[intent.category], routineCategory: intent.category,
     progressionMode: "comfort", progressionWeek: intent.week,
-    targetMin: minutes, equipment: [...equipment], exercises,
+    ...(daily ? { workoutStyle: "daily" } : {}),
+    targetMin: minutes ?? 0, equipment: [...equipment], exercises,
     generationNotes: [
       "Semana " + intent.week + " · nivel máximo autorizado: " + intent.maxLevel + ". La progresión requiere confirmar comodidad.",
-      "Los tiempos incluyen series y descansos programados. Preparación, avisos y pausas añaden tiempo.",
+      daily ? "Haz un ejercicio completo y retoma el siguiente cuando tengas otro momento libre."
+        : "Los tiempos incluyen series y descansos programados. Preparación, avisos y pausas añaden tiempo.",
       "La amplitud es individual. Mantén o reduce el nivel si pierde comodidad; no se presupone alcanzar un split."
     ]
   };

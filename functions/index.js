@@ -42,8 +42,12 @@ exports.generateRoutine = onCall({
   if (!auth || !auth.token.email_verified || !allowedEmails.has(auth.token.email?.toLowerCase())) {
     throw new HttpsError("permission-denied", "Inicia sesión con una cuenta autorizada de GymOS.");
   }
-  const { minutes, prompt, options = {}, days } = request.data || {};
+  const { minutes, prompt, options = {}, days, workoutStyle } = request.data || {};
   const isProgram = days !== undefined;
+  const daily = workoutStyle === "daily" && isProgram;
+  if (workoutStyle !== undefined && !daily) {
+    throw new HttpsError("invalid-argument", "El formato durante el día está disponible al crear un programa.");
+  }
   if (isProgram && days !== null && (!Number.isInteger(days) || days < 1 || days > 7)) {
     throw new HttpsError("invalid-argument", "Elige entre 1 y 7 días por semana.");
   }
@@ -51,9 +55,10 @@ exports.generateRoutine = onCall({
   if (!validOptions(options)) {
     throw new HttpsError("invalid-argument", "Revisa los filtros: elige una posición y superficie disponibles, un nivel de 1 a 3 y una semana entre 1 y 12.");
   }
-  if (!supportedMinutes.includes(minutes) || typeof prompt !== "string" ||
+  if ((!daily && !supportedMinutes.includes(minutes)) || typeof prompt !== "string" ||
       !prompt.trim() || prompt.length > 1500) {
-    throw new HttpsError("invalid-argument", "Elige la duración y escribe una descripción de hasta 1500 caracteres.");
+    throw new HttpsError("invalid-argument", daily ? "Escribe una descripción de hasta 1500 caracteres."
+      : "Elige la duración y escribe una descripción de hasta 1500 caracteres.");
   }
 
   await reserveGeneration(auth.uid);
@@ -65,8 +70,10 @@ exports.generateRoutine = onCall({
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: [
           "Interpreta la petición y selecciona ejercicios reales de este catálogo para flexibilidad, movilidad, danza, postura o relajación.",
-          `Propón hasta ${minutes / 2.5} IDs distintos. Prioriza movimiento suave al inicio y relajación al final; el servidor completa y valida la selección.`,
-          "La duración la fija la app. Respeta las zonas que la persona quiera trabajar o evitar y sus límites de espacio o apoyos.",
+          daily
+            ? "Propón hasta 4 ejercicios suaves por día que puedan hacerse individualmente en momentos distintos. No hay un objetivo de duración por sesión."
+            : `Propón hasta ${minutes / 2.5} IDs distintos. Prioriza movimiento suave al inicio y relajación al final. La duración la fija la app.`,
+          "El servidor completa y valida la selección. Respeta las zonas que la persona quiera trabajar o evitar y sus límites de espacio o apoyos.",
           "Distingue restricciones obligatorias de preferencias: 'solo', 'completamente', 'sin apoyar' o 'para realizar sentada o acostada' son obligatorias; 'prefiero', 'idealmente' y 'si es posible' son preferencias.",
           "En constraints.requiredPositions y requiredSurfaces incluye solo condiciones obligatorias. En preferences incluye deseos flexibles. 'En el suelo' permite sentado, acostado y cuatro apoyos sobre piso o colchoneta, nunca de pie.",
           "Las categorías de rutinas son: " + JSON.stringify(categories),
@@ -81,7 +88,9 @@ exports.generateRoutine = onCall({
               ? "Si el usuario indica cuántos días quiere por semana, respeta esa cantidad. Si no lo indica, prepara 3 días. Si pide más de 7 o menos de 1, usa status unsupported e indica el rango disponible."
               : `El selector de la app fija la frecuencia: prepara exactamente ${days} días aunque el texto indique otra cantidad.`,
             "Para status ok, devuelve programName y las sesiones en days, en orden semanal, cada una con focus (nombre breve del objetivo del día) y exerciseIds. Deja vacío el exerciseIds de nivel superior.",
-            "Distribuye los objetivos entre los días con enfoques complementarios y variación entre sesiones. Cada día es una rutina completa de la duración indicada. Aplica las restricciones obligatorias a todos los días."
+            "Distribuye los objetivos entre los días con enfoques complementarios y aplica las restricciones obligatorias a todos los días.",
+            daily ? "Cada día se puede repartir entre varias pausas."
+              : "Cada día es una rutina completa de la duración indicada."
           ] : []),
           "La menstruación habitual, ser principiante, volver después de una pausa, buscar flexibilidad o mencionar ausencia de dolor no son por sí solos motivos para rechazar una rutina general suave.",
           "Usa status health_review con exerciseIds vacío si hay dolor fuerte, dolor inexplicado o que empeora, una lesión o condición que necesita valoración individual, o si se pide rehabilitación o corregir un problema médico.",
@@ -161,11 +170,11 @@ exports.generateRoutine = onCall({
       const proposedIds = Array.isArray(ids) ? ids : [];
       let selected;
       try {
-        selected = selectExercises(candidatesForIntent, intent, proposedIds, minutes);
+        selected = selectExercises(candidatesForIntent, intent, proposedIds, daily ? null : minutes);
     } catch (error) {
       throw new HttpsError("failed-precondition", error.message, { reason: "unsupported" });
     }
-    const routine = buildRoutine(selected.map(ex => ex.id), minutes, intent);
+    const routine = buildRoutine(selected.map(ex => ex.id), daily ? null : minutes, intent);
     const substitutions = proposedIds.filter(id => !selected.some(ex => ex.id === id));
     if (substitutions.length || selection.status === "unsupported") {
       routine.generationNotes.push("Se eligieron alternativas del catálogo que cumplen los filtros obligatorios.");
