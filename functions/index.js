@@ -82,12 +82,14 @@ exports.generateRoutine = onCall({
           "Para cuerpo completo incluye opciones para piernas/caderas, tronco y hombros. Si falta una variante exacta, propone una alternativa compatible del catálogo.",
           "Los filtros de interfaz son obligatorios: " + JSON.stringify(options),
           "Usa excludedRiskTags para apoyos o movimientos que el usuario excluye. requiredEquipment solo si exige usar ese equipo en cada ejercicio; 'sin equipo' nunca requiere equipo.",
-          "Devuelve un objeto con status y exerciseIds. Para una rutina general posible, usa status ok y los IDs.",
+          isProgram
+            ? "Devuelve siempre programName, days y exerciseIds. Para status ok, llena days con las rutinas del programa y deja exerciseIds vacío. Para health_review o unsupported, devuelve days y exerciseIds vacíos."
+            : "Devuelve un objeto con status y exerciseIds. Para una rutina general posible, usa status ok y los IDs.",
           ...(isProgram ? [
             days === null
               ? "Si el usuario indica cuántos días quiere por semana, respeta esa cantidad. Si no lo indica, prepara 3 días. Si pide más de 7 o menos de 1, usa status unsupported e indica el rango disponible."
               : `El selector de la app fija la frecuencia: prepara exactamente ${days} días aunque el texto indique otra cantidad.`,
-            "Para status ok, devuelve programName y las sesiones en days, en orden semanal, cada una con focus (nombre breve del objetivo del día) y exerciseIds. Deja vacío el exerciseIds de nivel superior.",
+            "Cada elemento de days lleva focus (nombre breve del objetivo del día) y exerciseIds (IDs del catálogo). Mantén el orden semanal.",
             "Distribuye los objetivos entre los días con enfoques complementarios y aplica las restricciones obligatorias a todos los días.",
             daily ? "Cada día se puede repartir entre varias pausas."
               : "Cada día es una rutina completa de la duración indicada."
@@ -119,7 +121,7 @@ exports.generateRoutine = onCall({
                 programName: { type: "STRING" },
                 days: { type: "ARRAY", items: {
                   type: "OBJECT",
-                  properties: { focus: { type: "STRING" }, exerciseIds: { type: "ARRAY", items: { type: "STRING" } } },
+                  properties: { focus: { type: "STRING" }, exerciseIds: exerciseIdsSchema },
                   required: ["focus", "exerciseIds"]
                 } }
               } : {}),
@@ -138,7 +140,8 @@ exports.generateRoutine = onCall({
                 required: ["requiredPositions", "requiredSurfaces", "excludedRiskTags", "excludedEquipment", "requiredEquipment", "fullBody", "preferences"]
               }
             },
-            required: ["status", "exerciseIds", "unavailableRequirement", "constraints"]
+            required: ["status", "exerciseIds", "unavailableRequirement", "constraints",
+              ...(isProgram ? ["programName", "days"] : [])]
           }
         }
       })
@@ -149,7 +152,10 @@ exports.generateRoutine = onCall({
     }
     const { candidates } = await response.json();
     const candidate = candidates?.[0];
-    if (candidate?.finishReason !== "STOP") throw new Error("Respuesta incompleta");
+    if (candidate?.finishReason !== "STOP") {
+      logger.warn("Gemini no completó el borrador", { finishReason: candidate?.finishReason || "missing" });
+      throw new Error("Respuesta incompleta");
+    }
     const parts = candidate.content?.parts || [];
     const selection = JSON.parse(parts.filter(part => !part.thought).map(part => part.text || "").join(""));
     if (selection.status === "health_review") {
@@ -190,6 +196,9 @@ exports.generateRoutine = onCall({
         (days !== null && selection.days.length !== days) ||
         selection.days.some(day => !day || typeof day.focus !== "string" || !day.focus.trim() ||
           !Array.isArray(day.exerciseIds) || !day.exerciseIds.length)) {
+      logger.warn("Gemini devolvió un programa incompleto", {
+        requestedDays: days, returnedDays: Array.isArray(selection.days) ? selection.days.length : null
+      });
       throw new Error("Programa incompleto");
     }
     return {
