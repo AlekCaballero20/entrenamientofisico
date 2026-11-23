@@ -10,7 +10,8 @@ function setup() {
   const files = new Map();
   let queue = Promise.resolve();
   let calls = 0;
-  const state = { failProvider: false, failStorage: false };
+  const imageRequests = [];
+  const state = { failProvider: false, failStorage: false, reviews: [], reviewCalls: 0 };
   class HttpsError extends Error {
     constructor(code, message) { super(message); this.code = code; }
   }
@@ -54,7 +55,15 @@ function setup() {
   };
   const sandbox = {
     module: { exports: {} }, require: name => dependencies[name], Buffer, Date, Intl, AbortSignal,
-    fetch: async () => {
+    fetch: async (url, options) => {
+      if (url.includes("/gemini-3.5-flash-lite:")) {
+        state.reviewCalls++;
+        const review = state.reviews.shift() || { usable: true, correction: "" };
+        return { ok: true, json: async () => ({ candidates: [{
+          finishReason: "STOP", content: { parts: [{ text: JSON.stringify(review) }] }
+        }] }) };
+      }
+      imageRequests.push(JSON.parse(options.body));
       calls++;
       if (state.failProvider) return { ok: false, status: 503 };
       return { ok: true, json: async () => ({ candidates: [{
@@ -63,7 +72,7 @@ function setup() {
     }
   };
   vm.runInNewContext(fs.readFileSync(require.resolve("./images"), "utf8"), sandbox);
-  return { generate: sandbox.module.exports.generateImage, docs, files, calls: () => calls, state };
+  return { generate: sandbox.module.exports.generateImage, docs, files, calls: () => calls, state, imageRequests };
 }
 
 function request(name = "Círculos de hombros") {
@@ -129,6 +138,42 @@ test("el GIF conserva la imagen fija y reproduce las cuatro posturas de ida y vu
   assert.deepEqual(Array.from({ length: pages }, (_, i) => data[i * frameStride]), [10, 70, 130, 220, 130, 70]);
 });
 
+test("un GIF de cualquier ejercicio se vuelve a dibujar si la revisión detecta un giro", async () => {
+  const env = setup();
+  const sprite = await sharp({ create: { width: 256, height: 256, channels: 3, background: "#fff" } })
+    .png().toBuffer();
+  env.state.sprite = sprite.toString("base64");
+  env.state.reviews.push({ usable: false, correction: "Keep the feet planted and remove the torso twist." });
+  const animated = request("Movimiento nuevo con mancuernas");
+  animated.data.format = "gif";
+  const result = await env.generate(animated, "key");
+  assert.equal(result.gifVersion, 3);
+  assert.equal(env.state.reviewCalls, 2);
+  assert.equal(env.calls(), 2);
+  assert.match(env.imageRequests[1].contents[0].parts[0].text, /remove the torso twist/);
+  assert.equal(env.files.size, 1);
+});
+
+test("si la segunda revisión falla, conserva el GIF compartido anterior", async () => {
+  const env = setup();
+  const sprite = await sharp({ create: { width: 256, height: 256, channels: 3, background: "#fff" } })
+    .png().toBuffer();
+  env.state.sprite = sprite.toString("base64");
+  const animated = request("Remo nuevo con banda");
+  animated.data.format = "gif";
+  const original = await env.generate(animated, "key");
+  const doc = [...env.docs.keys()].find(key => key.endsWith("-gif"));
+  env.docs.set(doc, { ...env.docs.get(doc), gifVersion: 2 });
+  env.state.reviews.push(
+    { usable: false, correction: "Show the endpoint." },
+    { usable: false, correction: "Use a single camera angle." }
+  );
+  await assert.rejects(env.generate(animated, "key"), { code: "failed-precondition" });
+  assert.equal(env.docs.get(doc).imageUrl, original.imageUrl);
+  assert.equal(env.docs.get(doc).status, "ready");
+  assert.equal(env.files.size, 1);
+});
+
 test("el peso muerto rumano actualiza el GIF antiguo con una bisagra reproducible", async () => {
   const env = setup();
   const animated = request("Peso muerto rumano con mancuernas");
@@ -145,7 +190,7 @@ test("el peso muerto rumano actualiza el GIF antiguo con una bisagra reproducibl
 
   env.state.failStorage = false;
   const updated = await env.generate(animated, "key");
-  assert.equal(updated.gifVersion, 2);
+  assert.equal(updated.gifVersion, 3);
   assert.notEqual(updated.imageUrl, old.imageUrl);
   assert.equal((await env.generate(animated, "key")).reused, true);
   assert.equal(env.calls(), 0);

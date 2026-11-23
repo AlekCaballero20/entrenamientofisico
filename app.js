@@ -2419,7 +2419,7 @@ function isHttpUrl(url) {
 }
 
 const sharedExerciseImages = new Map();
-const exerciseGifVersion = 2;
+const exerciseGifVersion = 3;
 const imageGenerations = new Map();
 let unsubscribeExerciseImages = null;
 

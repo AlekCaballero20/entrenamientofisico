@@ -49,8 +49,8 @@ android {
         applicationId = "com.gymos.entrenamiento"
         minSdk = 26
         targetSdk = 34
-        versionCode = 4
-        versionName = "0.15.1"
+        versionCode = 5
+        versionName = "0.15.2"
     }
     signingConfigs {
         create("gymos") {
