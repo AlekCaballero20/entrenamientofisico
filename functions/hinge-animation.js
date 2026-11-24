@@ -2,16 +2,19 @@ const sharp = require("sharp");
 
 const size = 384;
 
-function hingeFrame(progress) {
-  const angle = progress * Math.PI * 0.28;
+function exerciseFrame(progress, curl = false) {
+  const bend = curl ? 0 : progress;
+  const angle = bend * Math.PI * 0.28;
   const ankle = { x: 190, y: 311 };
-  const knee = { x: ankle.x + 7 * progress, y: ankle.y - Math.sqrt(60 ** 2 - (7 * progress) ** 2) };
-  const hipX = 187 - 33 * progress;
+  const knee = { x: ankle.x + 7 * bend, y: ankle.y - Math.sqrt(60 ** 2 - (7 * bend) ** 2) };
+  const hipX = 187 - 33 * bend;
   const hip = { x: hipX, y: knee.y - Math.sqrt(62 ** 2 - (knee.x - hipX) ** 2) };
   const shoulder = { x: hip.x + 69 * Math.sin(angle), y: hip.y - 69 * Math.cos(angle) };
   const head = { x: shoulder.x + 32 * Math.sin(angle) + 5, y: shoulder.y - 32 * Math.cos(angle) };
 
-  const hand = { x: shoulder.x + 5, y: shoulder.y + 97 };
+  const elbow = { x: shoulder.x + 2, y: shoulder.y + 48 };
+  const lift = curl ? progress * Math.PI * 0.83 : 0;
+  const hand = { x: elbow.x + 3 + 49 * Math.sin(lift), y: elbow.y + 49 * Math.cos(lift) };
   const navy = "#18283b";
   const teal = "#26989a";
   const skin = "#f4d6be";
@@ -26,7 +29,7 @@ function hingeFrame(progress) {
       `<path d="M ${ankle.x + offset - 6} 308 h12 q5 7 16 9 q4 2 4 7 h-33 q-3 -6 1 -16Z" fill="${teal}" stroke="${navy}" stroke-width="2"/>`;
   };
   const arm = offset =>
-    trace(`M ${joint(shoulder, offset)} L ${hand.x + offset - 2} ${(shoulder.y + hand.y) / 2} L ${joint(hand, offset)}`, skin, 12) +
+    trace(`M ${joint(shoulder, offset)} L ${joint(elbow, offset)} L ${joint(hand, offset)}`, skin, 12) +
     `<g transform="translate(${hand.x + offset} ${hand.y})" fill="#35465a" stroke="${navy}" stroke-width="2"><rect x="-17" y="-3" width="34" height="6" rx="3"/><rect x="-20" y="-10" width="9" height="20" rx="3"/><rect x="11" y="-10" width="9" height="20" rx="3"/></g>` +
     `<circle cx="${hand.x + offset}" cy="${hand.y - 2}" r="5" fill="${skin}" stroke="${navy}" stroke-width="1.5"/>`;
   return Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 384 384">
@@ -43,11 +46,11 @@ function hingeFrame(progress) {
   </svg>`);
 }
 
-async function romanianDeadliftGif() {
+async function exerciseGif(frame) {
   const steps = 10;
   const forward = await Promise.all(Array.from({ length: steps + 1 }, (_, i) => {
     const progress = (1 - Math.cos(Math.PI * i / steps)) / 2;
-    return sharp(hingeFrame(progress)).flatten({ background: "#fff" }).raw().toBuffer();
+    return sharp(frame(progress)).flatten({ background: "#fff" }).raw().toBuffer();
   }));
   const frames = [...forward, ...forward.slice(1, -1).reverse()];
   const delay = frames.map((_, index) => index === 0 || index === steps ? 600 : 95);
@@ -56,4 +59,7 @@ async function romanianDeadliftGif() {
   }).gif({ loop: 0, delay }).toBuffer();
 }
 
-module.exports = { romanianDeadliftGif };
+module.exports = {
+  romanianDeadliftGif: () => exerciseGif(progress => exerciseFrame(progress)),
+  dumbbellCurlGif: () => exerciseGif(progress => exerciseFrame(progress, true))
+};

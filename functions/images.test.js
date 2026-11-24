@@ -170,7 +170,7 @@ test("un GIF de cualquier ejercicio se vuelve a dibujar si la revisión detecta 
   assert.equal(env.files.size, 1);
 });
 
-test("si la segunda revisión falla, conserva el GIF compartido anterior", async () => {
+test("si las tres revisiones fallan, conserva el GIF compartido anterior", async () => {
   const env = setup();
   const sprite = await sharp({ create: { width: 256, height: 256, channels: 3, background: "#fff" } })
     .png().toBuffer();
@@ -182,12 +182,29 @@ test("si la segunda revisión falla, conserva el GIF compartido anterior", async
   env.docs.set(doc, { ...env.docs.get(doc), gifVersion: 2 });
   env.state.reviews.push(
     { usable: false, correction: "Show the endpoint." },
-    { usable: false, correction: "Use a single camera angle." }
+    { usable: false, correction: "Use a single camera angle." },
+    { usable: false, correction: "Keep both feet planted." }
   );
   await assert.rejects(env.generate(animated, "key"), { code: "failed-precondition" });
   assert.equal(env.docs.get(doc).imageUrl, original.imageUrl);
   assert.equal(env.docs.get(doc).status, "ready");
   assert.equal(env.files.size, 1);
+  const finalPrompt = env.imageRequests.at(-1).contents[0].parts[0].text;
+  assert.match(finalPrompt, /Show the endpoint/);
+  assert.match(finalPrompt, /Use a single camera angle/);
+  assert.match(finalPrompt, /Redraw from scratch/);
+});
+
+test("el curl de bíceps crea una animación de técnica fija sin depender del proveedor", async () => {
+  const env = setup();
+  const animated = request("Curl de bíceps con mancuernas");
+  animated.data.format = "gif";
+  env.state.failProvider = true;
+  const result = await env.generate(animated, "key");
+  assert.equal(result.model, "gymos-motion");
+  assert.equal(env.calls(), 0);
+  const { pages } = await sharp(env.files.get(result.storagePath), { animated: true }).metadata();
+  assert.equal(pages, 20);
 });
 
 test("el peso muerto rumano actualiza el GIF antiguo con una bisagra reproducible", async () => {
