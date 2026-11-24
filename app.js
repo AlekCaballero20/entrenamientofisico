@@ -2454,19 +2454,19 @@ function subscribeExerciseImages(user) {
   }, () => toast("Biblioteca de imágenes", "No pudimos actualizar las imágenes compartidas. Revisa tu conexión.", "warn"));
 }
 
-async function generateExerciseImage(ex, format = "image") {
+async function generateExerciseImage(ex, format = "image", regenerate = false) {
   const sync = window.FirebaseSync;
   if (!sync?.currentUser || !sync.app?.functions) throw new Error("Inicia sesión para crear imágenes.");
   const key = `${format}:${ExerciseIdentity.normalizeExerciseName(ex.name)}`;
   const cached = sharedExerciseImages.get(key);
-  if (cached && (format !== "gif" || cached.gifVersion >= exerciseGifVersion)) {
+  if (cached && !regenerate && (format !== "gif" || cached.gifVersion >= exerciseGifVersion)) {
     return { ...cached, reused: true };
   }
   if (imageGenerations.has(key)) return imageGenerations.get(key);
   const uid = sync.currentUser.uid;
   const pending = (async () => {
     const call = sync.app.functions("us-central1").httpsCallable("generateExerciseImage", { timeout: 100000 });
-    const { data } = await call({ name: String(ex.name || "").trim(), notes: String(ex.notes || "").slice(0, 800), format });
+    const { data } = await call({ name: String(ex.name || "").trim(), notes: String(ex.notes || "").slice(0, 800), format, regenerate });
     if (sync.currentUser?.uid === uid) {
       sharedExerciseImages.set(`${data.format || "image"}:${data.normalizedName}`, data);
       refreshExerciseImages();
@@ -2491,7 +2491,7 @@ function exerciseImageControls(getExercise) {
     if (format.value === "gif") {
       button.textContent = cached && !(cached.gifVersion >= exerciseGifVersion)
         ? "Actualizar GIF animado"
-        : cached ? "Usar GIF animado" : "Crear GIF animado";
+        : cached ? "Rehacer GIF animado" : "Crear GIF animado";
     } else {
       button.textContent = cached ? "Usar imagen fija" : "Crear imagen fija con IA";
     }
@@ -2507,11 +2507,13 @@ function exerciseImageControls(getExercise) {
     button.disabled = true;
     format.disabled = true;
     const selectedFormat = format.value;
+    const cached = sharedExerciseImages.get("gif:" + ExerciseIdentity.normalizeExerciseName(ex.name));
+    const regenerate = selectedFormat === "gif" && cached?.gifVersion >= exerciseGifVersion;
     const label = selectedFormat === "gif" ? "GIF animado" : "Imagen fija";
     button.textContent = selectedFormat === "gif" ? "Preparando GIF animado…" : "Preparando imagen fija…";
     status.textContent = "Puede tardar alrededor de un minuto.";
     try {
-      const image = await generateExerciseImage(ex, selectedFormat);
+      const image = await generateExerciseImage(ex, selectedFormat, regenerate);
       status.textContent = image.reused ? `${label} disponible en la biblioteca.` : `${label} disponible en los ejercicios con este nombre.`;
     } catch (error) {
       status.textContent = error.message || "No pudimos crear la guía. Intenta de nuevo.";
@@ -5012,7 +5014,14 @@ const CoachMessages = {
 
 const GymTimer = {
   interval:null, remaining:0, total:0, paused:false, mode:"exercise", rest:0, restAfter:0, title:"",
-  sets:1, currentSet:1, exerciseSeconds:0, coachMsg:"", _endTimer:null, _pending:null,
+  sets:1, currentSet:1, exerciseSeconds:0, coachMsg:"", _endTimer:null, _pending:null, deadline:0,
+
+  isRest() { return this.mode === "rest" || this.mode === "restAfter"; },
+
+  armRest(seconds) {
+    this.deadline = Date.now() + seconds * 1000;
+    GymReminders.scheduleRest(this.deadline, this.mode === "restAfter");
+  },
 
   /* Ciclo con series: ejercicio (serie 1) → descanso → ejercicio (serie 2) → … →
      descanso entre ejercicios (restAfter) → siguiente ejercicio.
@@ -5038,9 +5047,12 @@ const GymTimer = {
     );
     $("#floating-timer")?.classList.remove("is-hidden"); this.bind(); this.paint();
     if (mode==="prepare") TimerSounds.tick();
+    GymReminders.requestRestPermission();
+    if (this.isRest()) this.armRest(this.total);
     this.interval=setInterval(() => {
       if (this.paused) return;
-      this.remaining--;
+      this.remaining = this.isRest()
+        ? Math.max(0, Math.ceil((this.deadline - Date.now()) / 1000)) : this.remaining - 1;
       // En la cuenta regresiva suena cada segundo; en el resto, solo los últimos 3.
       if (this.remaining>0 && (this.mode==="prepare" || this.remaining<=3)) TimerSounds.tick();
       this.paint();
@@ -5048,8 +5060,13 @@ const GymTimer = {
     },1000);
   },
 
-  finish() {
+  finish(skipped = false) {
     clearInterval(this.interval);
+    if (this.isRest() && this.deadline) {
+      if (skipped || this.paused) GymReminders.cancelRest();
+      else GymReminders.finishRest(this.deadline, this.mode === "restAfter");
+      this.deadline = 0;
+    }
     const opts = { title:this.title, rest:this.rest, restAfter:this.restAfter, sets:this.sets };
 
     // Fin de la cuenta regresiva: arranca el ejercicio que estaba en espera.
@@ -5141,6 +5158,8 @@ const GymTimer = {
   },
 
   stop(hide=true) {
+    if (this.isRest() && this.deadline) GymReminders.cancelRest();
+    this.deadline = 0;
     clearInterval(this.interval); this.interval=null;
     if (hide) {
       clearTimeout(this._endTimer);
@@ -5171,9 +5190,23 @@ const GymTimer = {
   },
 
   bind() {
-    $("#btn-timer-play").onclick=()=>{this.paused=!this.paused;this.paint();};
-    $("#btn-timer-skip").onclick=()=>this.finish();
-    $("#btn-timer-reset").onclick=()=>{this.remaining=this.total;this.paused=false;this.paint();};
+    $("#btn-timer-play").onclick=()=>{
+      this.paused=!this.paused;
+      if (this.isRest()) {
+        if (this.paused) {
+          this.remaining = Math.max(1, Math.ceil((this.deadline - Date.now()) / 1000));
+          GymReminders.cancelRest();
+        } else this.armRest(this.remaining);
+      }
+      this.paint();
+    };
+    $("#btn-timer-skip").onclick=()=>this.finish(true);
+    $("#btn-timer-reset").onclick=()=>{
+      this.remaining=this.total;
+      this.paused=false;
+      if (this.isRest()) this.armRest(this.total);
+      this.paint();
+    };
     $("#btn-close-timer").onclick=()=>this.stop();
   }
 };

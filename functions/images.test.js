@@ -138,6 +138,22 @@ test("el GIF conserva la imagen fija y reproduce las cuatro posturas de ida y vu
   assert.deepEqual(Array.from({ length: pages }, (_, i) => data[i * frameStride]), [10, 70, 130, 220, 130, 70]);
 });
 
+test("rehacer un GIF vigente lo reemplaza después de pasar revisión", async () => {
+  const env = setup();
+  const sprite = await sharp({ create: { width: 256, height: 256, channels: 3, background: "#fff" } })
+    .png().toBuffer();
+  env.state.sprite = sprite.toString("base64");
+  const animated = request("Remo con banda");
+  animated.data.format = "gif";
+  const original = await env.generate(animated, "key");
+  const updated = await env.generate({ ...animated, data: { ...animated.data, regenerate: true } }, "key");
+  assert.notEqual(updated.imageUrl, original.imageUrl);
+  assert.equal(updated.reused, false);
+  assert.equal((await env.generate(animated, "key")).imageUrl, updated.imageUrl);
+  assert.equal(env.calls(), 2);
+  assert.equal(env.state.reviewCalls, 2);
+});
+
 test("un GIF de cualquier ejercicio se vuelve a dibujar si la revisión detecta un giro", async () => {
   const env = setup();
   const sprite = await sharp({ create: { width: 256, height: 256, channels: 3, background: "#fff" } })

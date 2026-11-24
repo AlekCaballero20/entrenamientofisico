@@ -107,6 +107,8 @@ public final class MainActivity extends Activity {
             });
     }
 
+    private long restRequest;
+
     private void handleMessage(String message, JavaScriptReplyProxy reply) {
         String id = "";
         try {
@@ -115,7 +117,17 @@ public final class MainActivity extends Activity {
             switch (data.getString("command")) {
                 case "signIn": signIn(reply, id); break;
                 case "signOut": signOut(reply, id); break;
-                case "schedule": schedule(data, reply, id); break;
+                case "schedule": schedule(data, reply, id, false); break;
+                case "scheduleRest": schedule(data, reply, id, true); break;
+                case "cancelRest":
+                    restRequest++;
+                    RestAlarm.cancel(this);
+                    respond(reply, id, true, null);
+                    break;
+                case "finishRest":
+                    RestAlarm.finish(this, data.getLong("at"));
+                    respond(reply, id, true, null);
+                    break;
                 case "cancel":
                     if (permissionDenied != null) permissionDenied.run();
                     permissionGranted = null;
@@ -165,15 +177,22 @@ public final class MainActivity extends Activity {
             });
     }
 
-    private void schedule(JSONObject data, JavaScriptReplyProxy reply, String id) throws JSONException {
+    private void schedule(JSONObject data, JavaScriptReplyProxy reply, String id, boolean rest) throws JSONException {
         long at = data.getLong("at");
         String exercise = data.optString("exercise");
         if (at <= System.currentTimeMillis() || at > System.currentTimeMillis() + 24 * 60 * 60_000L) {
             respond(reply, id, null, "La hora del recordatorio no es válida.");
             return;
         }
+        long restToken = rest ? ++restRequest : 0;
+        boolean nextExercise = data.optBoolean("nextExercise");
         Runnable schedule = () -> {
-            if (WorkoutAlarm.schedule(this, at, exercise)) respond(reply, id, true, null);
+            if (rest && restToken != restRequest) {
+                respond(reply, id, false, null);
+                return;
+            }
+            boolean scheduled = rest ? RestAlarm.schedule(this, at, nextExercise) : WorkoutAlarm.schedule(this, at, exercise);
+            if (scheduled) respond(reply, id, true, null);
             else respond(reply, id, null, "Activa los avisos de GymOS en los ajustes de Android.");
         };
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {

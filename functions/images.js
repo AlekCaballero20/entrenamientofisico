@@ -64,8 +64,8 @@ async function generateImage(request, key) {
   if (!auth?.token.email_verified || !allowedEmails.includes(auth.token.email?.toLowerCase())) {
     throw new HttpsError("permission-denied", "Inicia sesión con una cuenta autorizada de GymOS.");
   }
-  const { name, notes = "", format = "image" } = request.data || {};
-  if (format !== "image" && format !== "gif") {
+  const { name, notes = "", format = "image", regenerate = false } = request.data || {};
+  if ((format !== "image" && format !== "gif") || typeof regenerate !== "boolean" || (regenerate && format !== "gif")) {
     throw new HttpsError("invalid-argument", "Elige imagen fija o GIF animado.");
   }
   if (typeof name !== "string" || name.length > 120 || typeof notes !== "string" || notes.length > 800) {
@@ -86,7 +86,7 @@ async function generateImage(request, key) {
   const cached = await db.runTransaction(async tx => {
     const previous = (await tx.get(ref)).data();
     const ready = previous?.status === "ready";
-    if (ready && (format !== "gif" || previous.gifVersion >= gifVersion)) return previous;
+    if (ready && !regenerate && (format !== "gif" || previous.gifVersion >= gifVersion)) return previous;
     if (previous?.lease && previous.leaseUntil > now) {
       throw new HttpsError("aborted", "La ilustración ya se está creando. Aparecerá al terminar.");
     }
@@ -106,7 +106,7 @@ async function generateImage(request, key) {
   let file;
   let published = false;
   try {
-    const useHingeAnimation = format === "gif" && normalizedName === romanianDeadlift;
+    const useHingeAnimation = format === "gif" && normalizedName === romanianDeadlift && !regenerate;
     const { media, contentType } = useHingeAnimation
       ? { media: await romanianDeadliftGif(), contentType: "image/gif" }
       : await generateProviderMedia(name.trim(), notes.trim(), format, key);

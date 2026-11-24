@@ -16,7 +16,7 @@
 
 'use strict';
 
-const SW_VERSION = 'gymos-v1.15.2'; // súbelo cuando hagas cambios
+const SW_VERSION = 'gymos-v1.15.3'; // súbelo cuando hagas cambios
 const PREFIX = 'gymos';
 const CACHE_APP = `${PREFIX}-app-${SW_VERSION}`;
 const CACHE_RUNTIME = `${PREFIX}-runtime-${SW_VERSION}`;
@@ -196,6 +196,10 @@ self.addEventListener('message', (event) => {
 
   if (msg.type === 'SKIP_WAITING') {
     self.skipWaiting();
+  } else if (msg.type === "REST_FINISHED" && typeof msg.text === "string") {
+    event.waitUntil(self.registration.showNotification("Descanso terminado", {
+      body: msg.text, tag: "gymos-rest", icon: "./icons/icon-192.png"
+    }));
   }
 });
 
