@@ -29,6 +29,19 @@ const GymReminders = {
     if (this.native) await this.request("schedule", { at, exercise });
     else this.watch(at, onDue);
   },
+  async getRestSettings() {
+    if (this.native) return this.request("restSettings");
+    return { available: !!window.Notification, enabled: window.Notification?.permission === "granted",
+      blocked: window.Notification?.permission === "denied" };
+  },
+  enableRestNotifications() {
+    if (this.native) return this.request("enableRestNotifications");
+    if (window.Notification?.permission === "default") return Notification.requestPermission();
+  },
+  async testRestNotification() {
+    if (this.native) return this.request("testRestNotification");
+    return this.showRestNotification("Prueba de descanso", "Así te avisará GymOS al terminar el descanso.");
+  },
   requestRestPermission() {
     if (this.native || this.requestedRestPermission || !window.Notification ||
         Notification.permission !== "default" || navigator.userActivation?.isActive === false) return;
@@ -54,13 +67,16 @@ const GymReminders = {
     }
     if (!window.Notification || Notification.permission !== "granted") return;
     const text = nextExercise ? "Es hora del siguiente ejercicio." : "Es hora de la siguiente serie.";
-    const worker = navigator.serviceWorker?.controller;
-    if (worker) {
-      worker.postMessage({ type: "REST_FINISHED", text });
-    } else {
-      try { new Notification("Descanso terminado", { body: text, tag: "gymos-rest" }); }
-      catch { /* El aviso sonoro sigue disponible. */ }
+    this.showRestNotification("Descanso terminado", text).catch(console.warn);
+  },
+  async showRestNotification(title, body) {
+    if (!window.Notification || Notification.permission !== "granted") {
+      throw new Error("Activa las notificaciones de GymOS primero.");
     }
+    const registration = await navigator.serviceWorker?.getRegistration();
+    const options = { body, tag: title === "Descanso terminado" ? "gymos-rest" : "gymos-rest-test", icon: "./icons/icon-192.png" };
+    if (registration?.active) await registration.showNotification(title, options);
+    else new Notification(title, options);
   },
   watch(at, onDue) {
     clearTimeout(this.timer);

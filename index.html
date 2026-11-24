@@ -57,8 +57,8 @@
 
   <script defer src="./functions/exercise-identity.js?v=0.13.0"></script>
   <script defer src="./functions/exercise-catalog.js?v=0.15.0"></script>
-  <script defer src="./workout-reminders.js?v=0.15.3"></script>
-  <script defer src="./app.js?v=0.15.3"></script>
+  <script defer src="./workout-reminders.js?v=0.15.4"></script>
+  <script defer src="./app.js?v=0.15.4"></script>
 
   <!-- =========================
        Service Worker (PWA)
@@ -963,6 +963,21 @@
 
               <div class="card__foot">
                 <button id="btnSavePrefs" class="btn btn--primary" type="button">Guardar preferencias</button>
+              </div>
+            </article>
+
+            <article class="card">
+              <div class="card__head">
+                <h2>Notificaciones de descanso</h2>
+              </div>
+              <div class="card__body stack">
+                <p id="restSettingsStatus" class="muted" role="status"></p>
+                <div class="row">
+                  <button id="enableRestAlerts" type="button" class="btn">Activar notificaciones</button>
+                  <button id="openRestChannel" type="button" class="btn is-hidden">Ajustar sonido y vibración</button>
+                  <button id="openExactAlarms" type="button" class="btn is-hidden">Permitir alarmas exactas</button>
+                  <button id="testRestAlert" type="button" class="btn" disabled>Probar notificación</button>
+                </div>
               </div>
             </article>
 

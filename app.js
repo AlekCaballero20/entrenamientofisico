@@ -6008,8 +6008,51 @@ function renderProgress() {
   }
 }
 
+async function refreshRestSettings() {
+  const status = $("#restSettingsStatus");
+  try {
+    const info = await GymReminders.getRestSettings();
+    const native = !!GymReminders.native;
+    const allowed = info.enabled && (!native || info.channel);
+    const enable = $("#enableRestAlerts");
+    enable.textContent = info.enabled || info.blocked ? "Abrir permisos de notificaciones" : "Activar notificaciones";
+    enable.classList.toggle("is-hidden", !native && (!info.available || info.enabled || info.blocked));
+    $("#openRestChannel").classList.toggle("is-hidden", !native);
+    $("#openExactAlarms").classList.toggle("is-hidden", !native || !!info.exact);
+    $("#testRestAlert").disabled = !allowed;
+    const messages = [];
+    if (allowed) messages.push("Notificaciones activadas.");
+    else if (native && info.enabled) messages.push("Activa el canal Fin del descanso en los ajustes de sonido y vibración.");
+    else if (info.blocked) messages.push("El navegador bloqueó las notificaciones. Habilítalas en los permisos de este sitio y vuelve a GymOS.");
+    else if (!native && !info.available) messages.push("Este navegador no admite notificaciones aquí.");
+    else messages.push("Activa las notificaciones para recibir el aviso cuando termine el descanso.");
+    if (allowed && native && !info.sound) messages.push("El aviso está en silencio. Puedes cambiar el sonido o la vibración.");
+    if (native && !info.exact) messages.push("Permite alarmas exactas para evitar demoras con la pantalla bloqueada.");
+    if (!native && allowed) messages.push("Mantén GymOS abierto para recibir el aviso.");
+    status.textContent = messages.join(" ");
+  } catch {
+    status.textContent = "No pudimos consultar los permisos de notificaciones.";
+  }
+}
+
 function renderSettings() {
   applyTheme();
+  refreshRestSettings();
+  $("#enableRestAlerts").onclick = async () => {
+    try { await GymReminders.enableRestNotifications(); }
+    catch (error) { toast("Notificaciones", error.message, "warn"); }
+    refreshRestSettings();
+  };
+  $("#openRestChannel").onclick = () => GymReminders.request("openRestChannel").catch(console.warn);
+  $("#openExactAlarms").onclick = () => GymReminders.request("openExactAlarms").catch(console.warn);
+  $("#testRestAlert").onclick = async () => {
+    try {
+      await GymReminders.testRestNotification();
+      toast("Notificación de prueba enviada", "Si apareció sin sonido, revisa sonido y vibración.", "ok");
+    } catch (error) {
+      toast("No pudimos mostrar la prueba", error.message, "warn");
+    }
+  };
   $("#btnResetAll") && ($("#btnResetAll").onclick = () => resetAllData());
 }
 
@@ -6133,6 +6176,10 @@ function openWorkoutNotification(at) {
   resumeWorkout();
 }
 
+window.addEventListener("gymos:settings-return", refreshRestSettings);
+window.addEventListener("focus", () => {
+  if (location.hash === "#settings") refreshRestSettings();
+});
 window.addEventListener("gymos:workout-notification", event => openWorkoutNotification(event.detail));
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) renderWorkoutResume();

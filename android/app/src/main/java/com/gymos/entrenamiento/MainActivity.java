@@ -2,6 +2,9 @@ package com.gymos.entrenamiento;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlarmManager;
+import android.app.NotificationManager;
+import android.provider.Settings;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
@@ -119,6 +122,23 @@ public final class MainActivity extends Activity {
                 case "signOut": signOut(reply, id); break;
                 case "schedule": schedule(data, reply, id, false); break;
                 case "scheduleRest": schedule(data, reply, id, true); break;
+                case "restSettings": respond(reply, id, restSettings(), null); break;
+                case "enableRestNotifications": enableRestNotifications(reply, id); break;
+                case "openRestChannel":
+                    RestAlarm.channel(this);
+                    openSettings(new Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                        .putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName())
+                        .putExtra(Settings.EXTRA_CHANNEL_ID, RestAlarm.CHANNEL));
+                    respond(reply, id, true, null);
+                    break;
+                case "openExactAlarms":
+                    if (Build.VERSION.SDK_INT >= 31) openSettings(new Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, packageUri()));
+                    respond(reply, id, true, null);
+                    break;
+                case "testRestNotification":
+                    if (RestAlarm.test(this)) respond(reply, id, true, null);
+                    else respond(reply, id, null, "Activa las notificaciones de descanso primero.");
+                    break;
                 case "cancelRest":
                     restRequest++;
                     RestAlarm.cancel(this);
@@ -144,6 +164,49 @@ public final class MainActivity extends Activity {
         } catch (JSONException error) {
             respond(reply, id, null, "Solicitud inválida.");
         }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (web != null) web.evaluateJavascript("window.dispatchEvent(new Event('gymos:settings-return'))", null);
+    }
+
+    private Uri packageUri() {
+        return Uri.parse("package:" + getPackageName());
+    }
+
+    private void openSettings(Intent action) {
+        try {
+            startActivity(action);
+        } catch (android.content.ActivityNotFoundException error) {
+            startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, packageUri()));
+        }
+    }
+
+    private JSONObject restSettings() throws JSONException {
+        NotificationManager manager = getSystemService(NotificationManager.class);
+        var channel = RestAlarm.channel(this);
+        return new JSONObject()
+            .put("enabled", manager.areNotificationsEnabled())
+            .put("channel", channel.getImportance() != NotificationManager.IMPORTANCE_NONE)
+            .put("sound", channel.getImportance() >= NotificationManager.IMPORTANCE_DEFAULT && channel.getSound() != null)
+            .put("exact", Build.VERSION.SDK_INT < 31 || getSystemService(AlarmManager.class).canScheduleExactAlarms());
+    }
+
+    private void enableRestNotifications(JavaScriptReplyProxy reply, String id) {
+        boolean needsPermission = Build.VERSION.SDK_INT >= 33
+            && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED;
+        if (needsPermission && !getPreferences(MODE_PRIVATE).getBoolean("restPermissionAsked", false) && permissionGranted == null) {
+            getPreferences(MODE_PRIVATE).edit().putBoolean("restPermissionAsked", true).apply();
+            permissionGranted = () -> respond(reply, id, true, null);
+            permissionDenied = () -> respond(reply, id, false, null);
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, POST_NOTIFICATIONS);
+            return;
+        }
+        openSettings(new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+            .putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName()));
+        respond(reply, id, true, null);
     }
 
     private void signIn(JavaScriptReplyProxy reply, String id) {
@@ -200,6 +263,7 @@ public final class MainActivity extends Activity {
                 respond(reply, id, null, "Responde primero a la solicitud de permiso de Android.");
                 return;
             }
+            getPreferences(MODE_PRIVATE).edit().putBoolean("restPermissionAsked", true).apply();
             permissionGranted = schedule;
             permissionDenied = () -> respond(reply, id, null, "Activa las notificaciones de GymOS para recibir avisos.");
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, POST_NOTIFICATIONS);
