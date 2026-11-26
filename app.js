@@ -3118,7 +3118,8 @@ function timeField(field, seconds) {
   const hint = el("span", { class:"time-field__hint" });
   const syncHint = () => {
     const secs = timeFieldSeconds(input);
-    hint.textContent = secs > 0 ? `= ${fmtDurationLabel(secs)}` : "0 = por repeticiones";
+    hint.textContent = secs > 0 ? `= ${fmtDurationLabel(secs)}`
+      : field === "duration" ? "0 = por repeticiones" : "0 = sin descanso";
   };
 
   select.onchange = () => {
@@ -3163,7 +3164,8 @@ function renderEditorRow(ex) {
   const duration = timeField("duration", ex.duration);
   const rest = timeField("rest", ex.rest);
   const restAfter = timeField("restAfter", ex.restAfter);
-  const notes = el("input", { class:"input input--sm", type:"text", value: ex.notes || "", placeholder:"Notas", "data-field":"notes" });
+  const notes = el("textarea", { class:"input input--sm editor-technique", rows:"3", placeholder:"Notas", "data-field":"notes" });
+  notes.value = ex.notes || "";
   const imageUrl = el("input", { class:"input input--sm", type:"url", value: cleanMediaUrl(ex.imageUrl || ""), placeholder:"Enlace de la imagen", "data-field":"imageUrl" });
   const aiImageControls = exerciseImageControls(() => ({ name: name.value, notes: notes.value }));
   const imagePreview = el("div", { class:"editor-image-preview" });

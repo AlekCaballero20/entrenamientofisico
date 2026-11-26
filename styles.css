@@ -2382,7 +2382,7 @@ textarea.input { resize: vertical; min-height: 96px; }
 
 .editor-group--timing {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) minmax(230px, 260px) minmax(230px, 260px);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
   align-items: end;
   margin: 0 18px 16px;
@@ -2392,7 +2392,7 @@ textarea.input { resize: vertical; min-height: 96px; }
   background: rgba(66, 133, 244, .06);
 }
 
-.editor-group__intro { display: flex; gap: 10px; align-items: center; }
+.editor-group__intro { grid-column: 1 / -1; display: flex; gap: 10px; align-items: center; }
 .editor-group__icon { font-size: 24px; }
 .editor-group__intro strong, .editor-group__intro span { display: block; }
 .editor-group__intro strong { margin-bottom: 2px; font-size: 14px; }
@@ -2401,6 +2401,7 @@ textarea.input { resize: vertical; min-height: 96px; }
 .editor-group--timing .editor-cell__label {
   color: #2563eb;
   font-weight: 750;
+  white-space: normal;
 }
 
 .editor-group--timing .input {
@@ -2409,9 +2410,11 @@ textarea.input { resize: vertical; min-height: 96px; }
 }
 
 .time-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.time-field__row { display: grid; grid-template-columns: 1fr 104px; gap: 6px; }
-.time-field__row .input { width: 100%; min-width: 0; }
-.time-field__unit { padding-inline: 8px; font-size: .78rem; }
+.time-field__row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(88px, 40%); gap: 8px; }
+.time-field__row .input { width: 100%; min-width: 0; min-height: 44px; }
+.time-field__row input { font-variant-numeric: tabular-nums; }
+.time-field__row .time-field__unit { padding-inline: 8px; font-size: .8rem; }
+.editor-technique { resize: vertical; line-height: 1.4; }
 .time-field__hint { font-size: .68rem; color: var(--muted); }
 
 .editor-group--media {
@@ -2439,8 +2442,8 @@ textarea.input { resize: vertical; min-height: 96px; }
   .editor-group--basics { grid-template-columns: 1fr 1fr; }
   .editor-group--basics .editor-cell:first-child,
   .editor-group--basics .editor-cell:last-child { grid-column: 1 / -1; }
-  .editor-group--timing { grid-template-columns: 1fr 1fr; }
-  .editor-group__intro { grid-column: 1 / -1; }
+  .editor-group--timing { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .time-field__row .input, .editor-technique { font-size: 16px; }
   .editor-media-fields { grid-template-columns: 1fr; }
 }
 
